@@ -31,6 +31,40 @@ quant/
 - 策略收益与 buy-and-hold 基准对比，夏普比率需在合理范围（|SR| < 3 否则检查未来函数/幸存者偏差）
 - 参数相图应呈现连续平滑区域，孤立的超高收益尖峰 = 过拟合信号
 
+## 新对话快速上手
+
+数据已缓存在 `data/cache/`（300 只 CSI 300，2010–2025 日线），无需重新拉取。
+
+```bash
+cd D:/桌面文件/quant
+
+# 验证环境
+python -c "from data.fetcher import load_daily; d=load_daily('000001'); print(len(d))"
+
+# 跑已有策略报告
+cd strategies/ma_crossover && python report.py
+
+# 新增策略：在 strategies/ 下建新文件夹
+mkdir strategies/my_strategy
+# 1. 复制 report.py 改策略逻辑
+# 2. 跑 python report.py 生成报告和图表
+# 3. 运行期间自动存 report_output.txt
+```
+
+## 标准分析流程
+
+每项新策略依次执行：
+1. **trial_run** — 单票单参数跑通端到端
+2. **scan** — 参数相图网格扫描，画夏普热力图
+3. **walk_forward** — 滚动窗口优化，检验参数稳定性
+4. **out_of_sample** — 训练集选参 → 测试集验证
+5. **capm** — OLS 回归分解 α/β
+6. **bootstrap_mc** — 收益率重采样检验统计显著性
+7. **cross_section** — 全市场截面检验 + Bonferroni 校正
+8. **survivorship** — 幸存者偏差讨论
+
+每步都有对应的代码模式在 `strategies/ma_crossover/` 下可参考。
+
 ## 红线
 
 - 不接实盘（该项目现阶段仅用于研究和模拟）
