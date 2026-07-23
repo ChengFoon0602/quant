@@ -65,6 +65,61 @@ mkdir strategies/my_strategy
 
 每步都有对应的代码模式在 `strategies/ma_crossover/` 下可参考。
 
+## 研究报告写作与提交流程
+
+每项新策略的报告生成遵循以下标准流程。报告由 Claude Code 辅助生成，用户负责最终审核。
+
+### 写作标准
+
+对标 `strategies/ma_crossover/report.md` 的质量和完整度：
+
+- **结论先行**：头部用 blockquote 给出核心结论，再展开分析
+- **假设检验形式化**：$H_0$ / $H_1$ 表格
+- **图表嵌入**：每张 png 用 `![描述](figures/XX_name.png)` 嵌入，路径相对 md 文件
+- **公式 LaTeX**：`$$...$$` 块级公式，`$...$` 内联
+- **检验框架表格**：每个检验维度 → 方法 → 控制的风险
+- **数据概况表格**：来源、成分股、时间范围、样本量
+- **最终判决总表**：检验汇总 → 判决，用 Unicode box-drawing 字符
+- **附录**：代码结构 + 复现命令 + 依赖
+
+### 报告执行流程
+
+```bash
+cd D:/桌面文件/quant/strategies/新策略名
+python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 figures/
+```
+
+`report.py` 职责：
+1. 计算所有数值指标（IC、SR、回撤、p-value 等）
+2. 生成独立 PNG 图表到 `figures/`，每张图有编号标题
+3. print 全部关键数值（供 Claude Code 写入 report.md 时引用）
+
+`report.md` 由 Claude Code 基于 report.py 的输出数值撰写，用户审核后提交。
+
+### 提交流程
+
+1. 确认 `report.md` + `report.py` + `figures/` 齐全
+2. **Claude Code 负责 stage + commit**：
+   ```bash
+   git add 策略目录/ && git commit -m "描述性 message"
+   ```
+3. **用户手动在 VS Code 点 Sync / Push** 到 `origin/main`
+
+### Alpha 191 因子策略报告（截面型）
+
+截面因子策略与单票时序策略的分析维度有差异：
+
+| 单票时序（MA crossover） | 多票截面（Alpha 191） |
+|--------------------------|------------------------|
+| 参数相图 (FAST × SLOW) | 因子 IC 分析（Rank IC + IC_IR） |
+| 滚动窗口 Walk-Forward | 分层回测（5 分组等权） |
+| CAPM 回归 α/β | Fama-MacBeth 截面回归 λ |
+| 单票 Bootstrap MC | 策略收益率 Bootstrap |
+| 单票全市场截面 | 单票 IC × Bonferroni |
+
+截面报告的 `report.py` 参考 `strategies/alpha001_trial/report.py`，
+时序报告的 `report.py` 参考 `strategies/ma_crossover/report.py`。
+
 ## 红线
 
 - 不接实盘（该项目现阶段仅用于研究和模拟）
