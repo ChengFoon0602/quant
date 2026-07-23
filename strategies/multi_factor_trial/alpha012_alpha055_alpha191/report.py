@@ -17,7 +17,7 @@ report.py — 三因子组合回测：独立性验证 → 因子合成 → 单�
 """
 
 import sys
-sys.path.insert(0, "../..")
+sys.path.insert(0, "../../..")
 
 import os
 import numpy as np

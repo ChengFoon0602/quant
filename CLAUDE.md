@@ -9,8 +9,16 @@ quant/
 ├── data/
 │   ├── fetcher.py     # 数据获取（akshare/yfinance 封装）
 │   └── cache/         # 本地 CSV 缓存，.gitignore
-├── signals/           # 策略信号生成，每个策略一个文件
-├── backtest/          # 回测引擎 + 绩效指标
+├── signals/
+│   └── alpha191/         # GTJA 191 因子库（算子 + 公式定义 + 批量计算）
+├── strategies/
+│   ├── ma_crossover/     # 单票时序策略示例
+│   ├── alpha001_trial/   # 单因子截面策略示例
+│   └── multi_factor_trial/  # 多因子合成实验
+│       └── alpha012_alpha055_alpha191/  # 以因子名命名的具体实验
+├── backtest/
+│   ├── engine.py         # 单票回测引擎
+│   └── cross_section.py  # 多票截面回测引擎
 ├── risk/              # 仓位管理 / 风控约束
 ├── viz/               # 可视化：权益曲线、回撤图、参数相图
 └── notebooks/         # 探索性分析 .ipynb
@@ -44,11 +52,16 @@ python -c "from data.fetcher import load_daily; d=load_daily('000001'); print(le
 # 跑已有策略报告
 cd strategies/ma_crossover && python report.py
 
-# 新增策略：在 strategies/ 下建新文件夹
-mkdir strategies/my_strategy
-# 1. 复制 report.py 改策略逻辑
+# 新增单因子策略：在 strategies/ 下建新文件夹
+mkdir strategies/my_factor
+# 1. 参考 alpha001_trial/report.py 改策略逻辑
 # 2. 跑 python report.py 生成报告和图表
-# 3. 运行期间自动存 report_output.txt
+
+# 新增多因子合成实验：在 strategies/multi_factor_trial/ 下以因子名建子目录
+mkdir -p strategies/multi_factor_trial/alphaXXX_alphaYYY
+# 1. 参考 alpha012_alpha055_alpha191/report.py
+# 2. 修改 FACTOR_IDS 列表为你的因子
+# 3. 跑 python report.py
 ```
 
 ## 标准分析流程
