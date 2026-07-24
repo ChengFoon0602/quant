@@ -45,6 +45,7 @@ def compute_factor_matrix(
     start: str | None = None,
     end: str | None = None,
     verbose: bool = True,
+    factor_kwargs: dict[str, dict] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """计算给定 symbols × factors 的截面因子矩阵。
 
@@ -53,6 +54,7 @@ def compute_factor_matrix(
         factor_ids: 因子 ID 列表，如 ["alpha001", "alpha072"]
         start, end: 日期筛选 YYYY-MM-DD，None = 全部
         verbose: 打印进度
+        factor_kwargs: 因子参数字典，如 {"alpha055": {"delta_days": 10}}
 
     Returns
         (close_matrix, factor_tensor):
@@ -88,10 +90,11 @@ def compute_factor_matrix(
         if verbose:
             print(f"  计算 {fid} ...", end=" ", flush=True)
         fn = get_factor_func(fid)
+        kwargs = (factor_kwargs or {}).get(fid, {})
         factor_rows = {}
         for sym, df in all_dfs.items():
             try:
-                factor_rows[sym] = fn(df)
+                factor_rows[sym] = fn(df, **kwargs)
             except Exception:
                 factor_rows[sym] = pd.Series(np.nan, index=df.index)
         mat = pd.DataFrame(factor_rows).sort_index()

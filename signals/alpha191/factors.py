@@ -319,8 +319,9 @@ def factor_053(df: pd.DataFrame) -> pd.Series:
 def factor_054(df: pd.DataFrame) -> pd.Series:
     return RANK(ABS(DELTA(df["close"], 3))) * RANK(DELTA(df["volume"], 3)) * -1
 
-def factor_055(df: pd.DataFrame) -> pd.Series:
-    return RANK(ABS(DELTA(df["close"], 4))) * RANK(DELTA(df["volume"], 4)) * -1
+def factor_055(df: pd.DataFrame, delta_days: int = 4) -> pd.Series:
+    """alpha055 = RANK(|ΔClose(d)|) × RANK(ΔVolume(d)) × -1, d 默认为 4"""
+    return RANK(ABS(DELTA(df["close"], delta_days))) * RANK(DELTA(df["volume"], delta_days)) * -1
 
 def factor_056(df: pd.DataFrame) -> pd.Series:
     return RANK(ABS(DELTA(df["close"], 5))) * RANK(DELTA(df["volume"], 5)) * -1

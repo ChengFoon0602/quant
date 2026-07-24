@@ -47,7 +47,7 @@ from .factors import (
     factor_186, factor_187, factor_188, factor_189, factor_190,
     factor_191,
 )
-from .calculator import compute_factor_matrix, list_factors
+from .calculator import compute_factor_matrix, list_factors, get_factor_func
 
 __all__ = [
     "compute_factor_matrix",
