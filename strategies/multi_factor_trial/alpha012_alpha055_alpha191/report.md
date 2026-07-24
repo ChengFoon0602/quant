@@ -247,7 +247,7 @@ alpha055 和 alpha191 的边际贡献显著（t > 2），alpha012 不显著且�
 | Q5 年化（最高因子组） | 14.2% | 13.7% | +0.5 pp |
 | 多空 SR | 0.698 | 1.185 | **−0.487** |
 
-![幸存者偏差对比](../alpha001_trial/figures/survivorship_bias.png)
+![幸存者偏差对比](figures/10_survivorship_bias.png)
 
 ### 10.3 解读
 
