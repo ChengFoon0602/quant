@@ -228,3 +228,117 @@ def cache_summary() -> pd.DataFrame:
             "end": df["date"].max(),
         })
     return pd.DataFrame(rows)
+
+
+# ── 扩展股票池 (PIT Universe 支持) ──────────────────────
+
+def get_extended_stock_list() -> pd.DataFrame:
+    """获取扩展股票池：CSI 300 + CSI 500 成分股（去重），含退市股。
+
+    优先用 baostock 获取当前成分股，再通过 akshare 获取退市股列表补充。
+    返回的 DataFrame 包含 symbol, name。
+    注意: 真正的 PIT 过滤在 universe.py 中通过动态条件实现。
+    """
+    _ensure_login()
+
+    symbols_set: set[str] = set()
+    rows: list[dict] = []
+
+    # CSI 300
+    try:
+        rs = bs.query_hs300_stocks()
+        while (rs.error_code == "0") and rs.next():
+            row = rs.get_row_data()
+            code = row[1].replace("sh.", "").replace("sz.", "")
+            symbols_set.add(code)
+            rows.append({"symbol": code, "name": row[2]})
+    except Exception:
+        pass
+
+    # CSI 500
+    try:
+        rs = bs.query_zz500_stocks()
+        while (rs.error_code == "0") and rs.next():
+            row = rs.get_row_data()
+            code = row[1].replace("sh.", "").replace("sz.", "")
+            if code not in symbols_set:
+                symbols_set.add(code)
+                rows.append({"symbol": code, "name": row[2]})
+    except Exception:
+        pass
+
+    # 退市股（通过 akshare 补充）
+    try:
+        import akshare as ak
+        sh_delist = ak.stock_info_sh_delist(indicator="终止上市公司")
+        sz_delist = ak.stock_info_sz_delist(indicator="终止上市公司")
+        for _, row_d in pd.concat([sh_delist, sz_delist]).iterrows():
+            code = str(row_d.get("证券代码", "")).zfill(6)
+            if len(code) != 6 or code in symbols_set:
+                continue
+            symbols_set.add(code)
+            rows.append({"symbol": code, "name": row_d.get("证券简称", "")})
+    except Exception:
+        pass
+
+    if not rows:
+        return pd.DataFrame(columns=["symbol", "name"])
+
+    df = pd.DataFrame(rows).drop_duplicates(subset="symbol").reset_index(drop=True)
+    print(f"扩展股票池: {len(df)} 只（CSI 300 + CSI 500 + 退市股）")
+    return df
+
+
+def sync_extended_universe(
+    start: str = "2010-01-01",
+    end: str = "2025-12-31",
+    max_new: int = 200,
+) -> tuple[list[str], list[str]]:
+    """拉取扩展股票池的日线数据（增量——只拉取缓存中没有的新股票）。
+
+    为避免一次性拉取过多导致 baostock 限流：
+    - 优先拉取缓存中尚不存在的股票
+    - 限制每次调用最多新拉取 max_new 只
+    - 已有缓存的股票不做更新
+
+    Returns
+        (ok_list, fail_list)
+    """
+    stock_df = get_extended_stock_list()
+    if stock_df.empty:
+        return [], []
+
+    all_symbols = stock_df["symbol"].tolist()
+
+    # 检查哪些已有缓存
+    cached = set()
+    for p in CACHE_DIR.glob("*.csv"):
+        cached.add(p.stem)
+
+    new_symbols = [s for s in all_symbols if s not in cached]
+    existing = len(all_symbols) - len(new_symbols)
+
+    print(f"总计: {len(all_symbols)} 只, 已有缓存: {existing}, 需新拉: {len(new_symbols)}")
+    print(f"本次最多新拉取: {max_new} 只")
+
+    to_pull = new_symbols[:max_new]
+
+    _ensure_login()
+
+    ok, fail = [], []
+    for i, sym in enumerate(to_pull):
+        try:
+            df = download_daily(sym, start=start, end=end)
+            ok.append(sym)
+            if (i + 1) % 20 == 0:
+                print(f"[{i+1}/{len(to_pull)}] {sym} ✓  {len(df)} 条  ({len(ok)} ok, {len(fail)} fail)")
+        except Exception as e:
+            fail.append(sym)
+            print(f"[{i+1}/{len(to_pull)}] {sym} ✗  {e}")
+
+    bs.logout()
+    print(f"\n扩展同步完成: {len(ok)} 成功, {len(fail)} 失败")
+    print(f"总缓存: {existing + len(ok)} 只")
+    if fail:
+        print(f"失败列表: {fail}")
+    return ok, fail
