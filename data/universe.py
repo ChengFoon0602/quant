@@ -149,13 +149,37 @@ def get_listing_info() -> tuple[dict, dict]:
     try:
         sh_delist = ak.stock_info_sh_delist(symbol="全部")
         sz_delist = ak.stock_info_sz_delist(symbol="终止上市公司")
-        for _, row in pd.concat([sh_delist, sz_delist]).iterrows():
+
+        # 上海: 公司代码 + 暂停上市日期 + 上市日期
+        n_delist = 0
+        for _, row in sh_delist.iterrows():
+            code = str(row.get("公司代码", "")).zfill(6)
+            if len(code) != 6:
+                continue
+            d = row.get("暂停上市日期", None)
+            if d and not pd.isna(pd.Timestamp(d)):
+                delist_dates[code] = pd.Timestamp(d)
+                n_delist += 1
+            # 退市股上市日期（stock_info_a_code_name 不含退市股）
+            if code not in listing_dates:
+                ld = row.get("上市日期", None)
+                if ld and not pd.isna(pd.Timestamp(ld)):
+                    listing_dates[code] = pd.Timestamp(ld)
+
+        for _, row in sz_delist.iterrows():
             code = str(row.get("证券代码", "")).zfill(6)
             if len(code) != 6:
                 continue
             d = row.get("终止上市日期", None)
             if d and not pd.isna(pd.Timestamp(d)):
                 delist_dates[code] = pd.Timestamp(d)
+                n_delist += 1
+            if code not in listing_dates:
+                ld = row.get("上市日期", None)
+                if ld and not pd.isna(pd.Timestamp(ld)):
+                    listing_dates[code] = pd.Timestamp(ld)
+
+        print(f"[INFO] 退市股: {n_delist} 只 (上交所{len(sh_delist)} + 深交所{len(sz_delist)}原始)")
     except Exception as e:
         print(f"[WARN] akshare 退市列表获取失败: {e}")
 
