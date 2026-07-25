@@ -23,5 +23,9 @@ report_output.txt
 .DS_Store
 Thumbs.db
 
+# 特征矩阵 (大文件，通过 select_features.py 重新生成)
+strategies/feature_selection/X_matrix.csv
+strategies/feature_selection/y_matrix.csv
+
 # Jupyter
 .ipynb_checkpoints/
