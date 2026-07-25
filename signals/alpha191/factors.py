@@ -10,6 +10,7 @@ VWAP 自动从 amount/volume 计算（如果 amount 列存在）。
   dao-quant-research/M06-06-gtja191-formula-reference.md
 """
 
+import inspect
 import numpy as np
 import pandas as pd
 
@@ -20,17 +21,84 @@ from .operators import (
 )
 
 
-def _clip(s: pd.Series) -> pd.Series:
-    """截尾：替换 inf 为 NaN，winsorize 到 ±10σ 范围（处理极端值）。"""
+def _where(cond, x, y):
+    """np.where 的安全替代：保留 Series/DataFrame 类型和索引。
+
+    numpy 的 np.where 对 pandas 对象始终返回 ndarray，
+    导致后续算子（SUM, STD 等）丢失索引。此函数确保返回值
+    保持与输入相同的类型和索引。
+    """
+    result = np.where(cond, x, y)
+    if isinstance(x, pd.DataFrame):
+        return pd.DataFrame(result, index=x.index, columns=x.columns)
+    if isinstance(x, pd.Series):
+        return pd.Series(result, index=x.index)
+    if isinstance(y, pd.DataFrame):
+        return pd.DataFrame(result, index=y.index, columns=y.columns)
+    if isinstance(y, pd.Series):
+        return pd.Series(result, index=y.index)
+    return result
+
+
+def _factor_has_rank(factor_num: int) -> bool:
+    """扫描因子函数源码，判断是否使用了 RANK/TSRANK 或含 RANK 的工厂函数。"""
+    fn_name = f"factor_{factor_num:03d}"
+    fn = globals().get(fn_name)
+    if fn is None:
+        return False
+    try:
+        src = inspect.getsource(fn)
+    except Exception:
+        return False
+
+    if "RANK(" in src or "TSRANK(" in src or "RANK " in src:
+        return True
+
+    rank_helpers = [
+        "_ret_rank_pair", "_corr_vol_pair",
+        "_make_regbeta_factor", "_make_regresi_factor",
+        "_make_count_up_factor", "_make_count_down_factor",
+    ]
+    for helper in rank_helpers:
+        if helper in src:
+            return True
+
+    return False
+
+
+def _clip(s):
+    """截尾：替换 inf 为 NaN，winsorize 到 ±10σ 范围（处理极端值）。
+
+    支持 Series 和 DataFrame 输入。
+    """
     s = s.replace([np.inf, -np.inf], np.nan)
-    mu, sigma = s.mean(), s.std()
-    if sigma > 0:
-        s = s.clip(mu - 10 * sigma, mu + 10 * sigma)
-    return s
+    if isinstance(s, pd.DataFrame):
+        mu = s.mean()   # per-column mean
+        sigma = s.std()  # per-column std
+        # clip each column independently
+        lower = mu - 10 * sigma
+        upper = mu + 10 * sigma
+        return s.clip(lower, upper, axis=1)
+    else:
+        mu, sigma = s.mean(), s.std()
+        if sigma > 0:
+            s = s.clip(mu - 10 * sigma, mu + 10 * sigma)
+        return s
 
 
-def _ensure_vwap(df: pd.DataFrame) -> pd.Series:
-    """若无 vwap 列，从 amount/volume 计算日内均价。"""
+def _ensure_vwap(df):
+    """若无 vwap 列，从 amount/volume 计算日内均价。
+
+    支持 pd.DataFrame（单股票）和 dict[str, DataFrame]（面板模式）。
+    """
+    if isinstance(df, dict):
+        # 面板模式: dict of DataFrames
+        if "vwap" in df:
+            return df["vwap"]
+        if "amount" in df:
+            return df["amount"] / df["volume"]
+        raise KeyError("面板需包含 'vwap' 或 'amount' 键")
+    # 单股票模式: DataFrame
     if "vwap" in df.columns:
         return df["vwap"]
     if "amount" in df.columns:
@@ -59,21 +127,29 @@ def factor_003(df: pd.DataFrame) -> pd.Series:
     """SUM(CLOSE==DELAY(CLOSE,1) ? 0 : CLOSE > DELAY(CLOSE,1) ? CLOSE - MIN(LOW,DELAY(CLOSE,1)) : CLOSE - MAX(HIGH,DELAY(CLOSE,1)), 6)"""
     c = df["close"]
     dc = DELAY(c, 1)
-    val = np.where(c == dc, 0.0,
-                   np.where(c > dc,
-                            c - np.minimum(df["low"], dc),
-                            c - np.maximum(df["high"], dc)))
+    val = _where(c == dc, 0.0,
+                 _where(c > dc,
+                        c - np.minimum(df["low"], dc),
+                        c - np.maximum(df["high"], dc)))
     return SUM(val, 6)
 
 
 def factor_004(df: pd.DataFrame) -> pd.Series:
-    """MA8+STD8 < MA2 ? -1 : MA2 < MA8-STD8 ? 1 : 0"""
+    """if MA(C,8)+STD(C,8) < MA(C,2): -1
+       elif MA(C,2) < MA(C,8)-STD(C,8): 1
+       elif VOL/MA(VOL,20) >= 1: 1
+       else: -1"""
     c = df["close"]
+    v = df["volume"]
     ma8 = SUM(c, 8) / 8
     std8 = STD(c, 8)
     ma2 = SUM(c, 2) / 2
-    return np.where(ma8 + std8 < ma2, -1.0,
-                    np.where(ma2 < ma8 - std8, 1.0, 0.0))
+    mv20 = SUM(v, 20) / 20
+    return _where(
+        ma8 + std8 < ma2, -1.0,
+        _where(ma2 < ma8 - std8, 1.0,
+               _where(v / mv20 >= 1.0, 1.0, -1.0))
+    )
 
 
 def factor_005(df: pd.DataFrame) -> pd.Series:
@@ -116,7 +192,7 @@ def factor_010(df: pd.DataFrame) -> pd.Series:
     """(RANK(MAX(((RET<0)?STD(RET,20):CLOSE)^2),5))"""
     c = df["close"]
     ret = c.pct_change()
-    val = np.where(ret < 0, STD(ret, 20), c) ** 2
+    val = _where(ret < 0, STD(ret, 20), c) ** 2
     # RANK(MAX(val, 5)) — MAX with window 5
     return RANK(np.maximum(val, 5))
 
@@ -747,33 +823,56 @@ def factor_170(df):
 # ══════════════════════════════════════════════════════════════
 
 def factor_171(df: pd.DataFrame) -> pd.Series:
-    """(-1 * (((CLOSE-LOW)/(HIGH-CLOSE)) * (OPEN/CLOSE)^5))"""
-    bull = ((df["close"] - df["low"]) / (df["high"] - df["close"])).replace([np.inf, -np.inf], np.nan)
-    power = (df["open"] / df["close"]) ** 5
-    return _clip(-bull * power)
+    """-1 * (LOW-CLOSE) * OPEN^5 / ((CLOSE-HIGH+1e-7) * CLOSE^5)"""
+    c = df["close"]
+    numer = (df["low"] - c) * df["open"] ** 5
+    denom = (c - df["high"] + 1e-7) * c ** 5
+    return _clip(-numer / denom)
 
 def factor_172(df: pd.DataFrame) -> pd.Series:
-    """(-1 * (((CLOSE-LOW)/(HIGH-CLOSE)) * (OPEN/CLOSE)^3))"""
-    bull = ((df["close"] - df["low"]) / (df["high"] - df["close"])).replace([np.inf, -np.inf], np.nan)
-    power = (df["open"] / df["close"]) ** 3
-    return _clip(-bull * power)
+    """DI-difference oscillator (DX): MEAN(|p1-p2|/(p1+p2)*100, 6)
+       p1 = SUM(pos_ld,14)*100/SUM(TR,14), p2 = SUM(pos_hd,14)*100/SUM(TR,14)"""
+    c, h, l = df["close"], df["high"], df["low"]
+    pc = DELAY(c, 1)
+    a = h - l
+    b = ABS(h - pc)
+    c_lo = ABS(l - pc)
+    tr = np.fmax(np.fmax(a, b), c_lo)
+    hd = h - DELAY(h, 1)
+    ld = DELAY(l, 1) - l
+    pos_ld = _where((ld > 0) & (ld > hd), ld, 0.0)
+    pos_hd = _where((hd > 0) & (hd > ld), hd, 0.0)
+    sum_tr = SUM(tr, 14) + 1e-7
+    p1 = SUM(pos_ld, 14) * 100.0 / sum_tr
+    p2 = SUM(pos_hd, 14) * 100.0 / sum_tr
+    raw = ABS(p1 - p2) / (p1 + p2 + 1e-7) * 100.0
+    return _clip(SUM(raw, 6) / 6)
 
 def factor_173(df: pd.DataFrame) -> pd.Series:
-    """(-1 * (((CLOSE-LOW)/(HIGH-CLOSE)) * (OPEN/CLOSE)^1))"""
-    bull = ((df["close"] - df["low"]) / (df["high"] - df["close"])).replace([np.inf, -np.inf], np.nan)
-    return _clip(-bull * (df["open"] / df["close"]))
+    """3*SMA(C,13,2) - 2*SMA(SMA(C,13,2),13,2) + SMA(SMA(LOG(C),13,2),13,2)"""
+    c = df["close"]
+    ma = SMA(c, 13, 2)
+    return _clip(3.0 * ma - 2.0 * SMA(ma, 13, 2) + SMA(SMA(LOG(c), 13, 2), 13, 2))
 
 def factor_174(df: pd.DataFrame) -> pd.Series:
-    """(-1 * (((HIGH-CLOSE)/(CLOSE-LOW)) * (CLOSE/OPEN)^5))"""
-    bear = ((df["high"] - df["close"]) / (df["close"] - df["low"])).replace([np.inf, -np.inf], np.nan)
-    power = (df["close"] / df["open"]) ** 5
-    return _clip(-bear * power)
+    """SMA(C > prev_C ? STD(C,20) : 0, 20, 1) — up-day volatility EWMA"""
+    c = df["close"]
+    pc = DELAY(c, 1)
+    s = STD(c, 20)
+    # 参照 aurumq-rl 逻辑: pc 或 s 为 null 时填 NaN，否则 C > prev_C ? s : 0
+    mask_valid = pc.notna() & s.notna()
+    masked = _where(mask_valid & (c > pc), s, _where(mask_valid, 0.0, np.nan))
+    return _clip(SMA(masked, 20, 1))
 
 def factor_175(df: pd.DataFrame) -> pd.Series:
-    """(-1 * (((HIGH-CLOSE)/(CLOSE-LOW)) * (CLOSE/OPEN)^3))"""
-    bear = ((df["high"] - df["close"]) / (df["close"] - df["low"])).replace([np.inf, -np.inf], np.nan)
-    power = (df["close"] / df["open"]) ** 3
-    return _clip(-bear * power)
+    """MEAN(TR, 6) — 6-day mean true range"""
+    c, h, l = df["close"], df["high"], df["low"]
+    pc = DELAY(c, 1)
+    a = h - l
+    b = ABS(pc - h)
+    c_tr = ABS(pc - l)
+    tr = np.fmax(np.fmax(a, b), c_tr)
+    return SUM(tr, 6) / 6
 
 def factor_176(df: pd.DataFrame) -> pd.Series:
     """(-1 * (((HIGH-CLOSE)/(CLOSE-LOW)) * (CLOSE/OPEN)^1))"""
