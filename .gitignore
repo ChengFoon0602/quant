@@ -48,5 +48,9 @@ models/factor_attribution.csv
 models/lgbm_final_model.txt
 models/final_model_feature_importance.csv
 
+# 滚动回测生成物 (通过 walk_forward.py 重新生成)
+models/walk_forward_summary.csv
+models/walk_forward_yearly.csv
+
 # Jupyter
 .ipynb_checkpoints/
