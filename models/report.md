@@ -86,6 +86,8 @@ Fold 5: train [0─e)    val [e+6─T)
 
 ### 5 折 CV AUC
 
+![LightGBM OOF 汇总图 — Rank IC 累积、五分位收益、多空曲线、特征重要性](figures/lgbm_oof_summary.png)
+
 | Fold | 训练样本 | 验证样本 | 验证 AUC |
 |------|----------|----------|----------|
 | 1 | 69,736 | 69,743 | 0.5543 |
