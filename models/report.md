@@ -356,6 +356,8 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 ### 结论
 
 - **hold_days=10 是推荐设置**：夏普从 5.75 提升至 8.75（+52%），回撤从 -37% 降至 -32%，日均换手率减半（10%）。
+
+![调仓频率与动态仓位优化 — 夏普/回撤对比 + 净值曲线 + 仓位信号](figures/execution_optimization.png)
 - hold_days > 10 虽然指标更好，但存在递减回报和实操隐忧（持仓 20 日无法及时应对极端行情）。
 - 本质原因：模型预测的是 5 日截面排名，持有更长时间可以平滑信号中的噪声。过度延长则可能超出模型预测的有效期。
 
@@ -461,6 +463,7 @@ python models/train_final_model.py
 | `models/figures/conditional_attribution.png` | 条件 Alpha 归因 |
 | `models/figures/factor_attribution.png` | CAPM 因子归因（4 子图） |
 | `models/figures/final_model_summary.png` | 最终模型特征重要性与 CV 迭代 |
+| `models/figures/execution_optimization.png` | 调仓频率 + 动态仓位优化（4 子图） |
 | `models/report.md` | 本报告 |
 
 ---
