@@ -36,7 +36,7 @@ warnings.filterwarnings("ignore")
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.fetcher import cache_summary, load_daily
+from data.fetcher import load_daily
 from models.cv import PurgedTimeSeriesSplit
 from models.evaluate import evaluate_oof
 from models.labels import align_X_y, build_labels, build_sample_weights, get_valid_samples
@@ -77,7 +77,6 @@ EARLY_STOPPING_ROUNDS = 50
 
 def load_features_and_close(
     feature_dir: Path = FEATURE_DIR,
-    n_stocks: int = 300,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """读取 X_matrix.csv 并重建 close_matrix（用于标签和评估）。"""
     x_path = feature_dir / "X_matrix.csv"
@@ -95,9 +94,9 @@ def load_features_and_close(
     # X_long index: (date, stock), columns: features
     feature_cols = [c for c in X_long.columns if c not in ("market_vol_20d", "market_turnover_20d")]
 
-    # 从 data.fetcher 重建 close_matrix
-    cache = cache_summary()
-    symbols = sorted(cache["symbol"].tolist())[:n_stocks]
+    # close_matrix 只取 X_matrix 内实际出现的股票——
+    # 禁止 sorted(cache)[:300] 切片：缓存扩容后该切片会漂移（曾取出 298 只纯深市股票）
+    symbols = sorted(X_long.index.get_level_values(1).unique())
     close_data = {}
     for sym in symbols:
         df = load_daily(sym)
@@ -178,8 +177,12 @@ def main():
     print(f"股票数: {close_matrix.shape[1]}  交易日: {close_matrix.shape[0]}")
 
     # ── 构建 5 日截面分类标签 ──
+    # PIT 掩码 = X_matrix 中实际出现的 (date, symbol) 样本——
+    # 截面分位数只在当日指数成员内计算
+    universe = pd.Series(True, index=X_long.index).unstack(fill_value=False)
     print(f"\n构建标签: 未来 {FWD_DAYS} 日截面收益 前 {TOP_Q:.0%}=1 后 {BOTTOM_Q:.0%}=0")
-    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=TOP_Q, bottom_q=BOTTOM_Q)
+    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=TOP_Q, bottom_q=BOTTOM_Q,
+                          universe=universe)
     aligned = align_X_y(X_long, labels)
     print(f"总样本: {len(aligned):,}  有效标签: {aligned['label'].notna().sum():,}  "
           f"占比 {aligned['label'].notna().mean():.2%}")

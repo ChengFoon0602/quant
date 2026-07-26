@@ -26,14 +26,14 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.fetcher import cache_summary, load_daily
+from data.fetcher import load_daily
 from models.labels import align_X_y, build_labels, build_sample_weights
 from models.lgbm_trainer import LGBM_PARAMS, FWD_DAYS, FEATURE_DIR
 
 MODEL_DIR = Path(__file__).parent
 
 
-def load_features_and_close(feature_dir: Path = FEATURE_DIR, n_stocks: int = 300):
+def load_features_and_close(feature_dir: Path = FEATURE_DIR):
     """读取 X_matrix.csv 并重建 close_matrix。"""
     x_path = feature_dir / "X_matrix.csv"
     if not x_path.exists():
@@ -45,8 +45,8 @@ def load_features_and_close(feature_dir: Path = FEATURE_DIR, n_stocks: int = 300
     stock_col = X_raw.columns[1]
     X_long = X_raw.set_index(["date", stock_col]).astype(float)
 
-    cache = cache_summary()
-    symbols = sorted(cache["symbol"].tolist())[:n_stocks]
+    # close_matrix 只取 X_matrix 内实际出现的股票（禁止 sorted(cache)[:300] 切片）
+    symbols = sorted(X_long.index.get_level_values(1).unique())
     close_data = {}
     for sym in symbols:
         df = load_daily(sym)
@@ -87,7 +87,9 @@ def main():
     print(f"\n特征数: {len(all_feature_cols)}")
     print(f"股票数: {close_matrix.shape[1]}  交易日: {close_matrix.shape[0]}")
 
-    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2)
+    universe = pd.Series(True, index=X_long.index).unstack(fill_value=False)
+    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2,
+                          universe=universe)
     aligned = align_X_y(X_long, labels)
     aligned = aligned.sort_index(level=0)
     print(f"总样本: {len(aligned):,}  有效标签: {aligned['label'].notna().sum():,}")

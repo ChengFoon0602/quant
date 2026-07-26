@@ -35,7 +35,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.fetcher import cache_summary, load_daily
+from data.fetcher import load_daily
 from models.cv import PurgedTimeSeriesSplit
 from models.labels import align_X_y, build_labels
 from models.lgbm_trainer import FEATURE_DIR, FWD_DAYS
@@ -77,15 +77,15 @@ class MLP(nn.Module):
         return self.net(x)
 
 
-def load_features_and_close(feature_dir: Path = FEATURE_DIR, n_stocks: int = 300):
+def load_features_and_close(feature_dir: Path = FEATURE_DIR):
     x_path = feature_dir / "X_matrix.csv"
     X_raw = pd.read_csv(x_path, dtype=str)
     X_raw["date"] = pd.to_datetime(X_raw["date"])
     stock_col = X_raw.columns[1]
     X_long = X_raw.set_index(["date", stock_col]).astype(float)
 
-    cache = cache_summary()
-    symbols = sorted(cache["symbol"].tolist())[:n_stocks]
+    # close_matrix 只取 X_matrix 内实际出现的股票（禁止 sorted(cache)[:300] 切片）
+    symbols = sorted(X_long.index.get_level_values(1).unique())
     close_data = {}
     for sym in symbols:
         df = load_daily(sym)
@@ -187,7 +187,9 @@ def main():
 
     X_long, close_matrix = load_features_and_close()
     all_features = [c for c in X_long.columns]
-    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2)
+    universe = pd.Series(True, index=X_long.index).unstack(fill_value=False)
+    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2,
+                          universe=universe)
     aligned = align_X_y(X_long, labels).sort_index(level=0)
     valid = aligned.dropna(subset=["label"])
     # PyTorch 不能处理 NaN，用列中位数填充

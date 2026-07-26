@@ -39,7 +39,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.fetcher import cache_summary, load_daily
+from data.fetcher import load_daily
 from models.labels import align_X_y, build_labels, build_sample_weights
 from models.lgbm_trainer import LGBM_PARAMS, FWD_DAYS, FEATURE_DIR
 from models.portfolio_backtest import build_portfolio, performance_metrics
@@ -53,15 +53,15 @@ HOLD_DAYS = 10
 TOP_Q, BOTTOM_Q = 0.2, 0.2
 
 
-def load_features_and_close(feature_dir: Path = FEATURE_DIR, n_stocks: int = 300):
+def load_features_and_close(feature_dir: Path = FEATURE_DIR):
     x_path = feature_dir / "X_matrix.csv"
     X_raw = pd.read_csv(x_path, dtype=str)
     X_raw["date"] = pd.to_datetime(X_raw["date"])
     stock_col = X_raw.columns[1]
     X_long = X_raw.set_index(["date", stock_col]).astype(float)
 
-    cache = cache_summary()
-    symbols = sorted(cache["symbol"].tolist())[:n_stocks]
+    # close_matrix 只取 X_matrix 内实际出现的股票（禁止 sorted(cache)[:300] 切片）
+    symbols = sorted(X_long.index.get_level_values(1).unique())
     close_data = {}
     for sym in symbols:
         df = load_daily(sym)
@@ -84,7 +84,10 @@ def main():
 
     X_long, close_matrix = load_features_and_close()
     all_features = [c for c in X_long.columns]
-    labels_full = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=TOP_Q, bottom_q=BOTTOM_Q)
+    # PIT 掩码 = X_matrix 中实际出现的样本，分位数只在当日成员内算
+    universe = pd.Series(True, index=X_long.index).unstack(fill_value=False)
+    labels_full = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=TOP_Q, bottom_q=BOTTOM_Q,
+                               universe=universe)
     aligned_full = align_X_y(X_long, labels_full).sort_index(level=0)
     valid_full = aligned_full.dropna(subset=["label"])
     print(f"全量样本: {len(valid_full):,}")
@@ -159,13 +162,12 @@ def main():
     # 对比：Purged CV OOF 组合
     print("\n读取 Purged CV OOF 预测进行对比...")
     from models.portfolio_backtest import load_data as pb_load
-    pred_lgb_cv, _, cm, _, _, _ = pb_load()
+    pred_lgb_cv, _, cm, mkt_ret, _, _ = pb_load()
     port_cv = build_portfolio(pred_lgb_cv, cm, long_only=False, cost=COST, hold_days=HOLD_DAYS)
     m_cv = performance_metrics(port_cv["port_ret"])
 
-    # 市场基准
-    daily_ret = cm.shift(-2) / cm.shift(-1) - 1
-    mkt_ret = daily_ret.mean(axis=1).rolling(HOLD_DAYS).mean().dropna()
+    # 市场基准：直接复用 load_data 的成员掩码等权日收益
+    # （等权恒定权重无重叠 tranche；此前 rolling(HOLD_DAYS).mean() 平滑残留已移除）
     m_mkt = performance_metrics(mkt_ret)
 
     print(f"\n{'方法':<25} {'年化':>9} {'夏普':>7} {'最大回撤':>9}")

@@ -23,9 +23,14 @@ report_output.txt
 .DS_Store
 Thumbs.db
 
-# 特征矩阵 (大文件，通过 select_features.py 重新生成)
-strategies/feature_selection/X_matrix.csv
-strategies/feature_selection/y_matrix.csv
+# 特征矩阵 (大文件，通过 select_features.py / build_pit_matrix.py 重新生成)
+# *_pre_pit.csv = 2026-07 幸存者偏差修复前的旧矩阵备份
+strategies/feature_selection/X_matrix*.csv
+strategies/feature_selection/y_matrix*.csv
+
+# 幸存者偏差修复前的旧模型输出备份 (*_pre_pit)
+models/*_pre_pit.csv
+models/*_pre_pit.json
 
 # LightGBM 模型生成物 (通过 lgbm_trainer.py 重新生成)
 models/lgbm_fold_*.txt

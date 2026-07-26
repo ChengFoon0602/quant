@@ -66,6 +66,7 @@ def build_labels(
     fwd_days: int = 5,
     top_q: float = 0.2,
     bottom_q: float = 0.2,
+    universe: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """构建截面分类标签 DataFrame (date × stocks)。
 
@@ -77,6 +78,10 @@ def build_labels(
         未来持有期交易日数。标签 = close(t+fwd_days+1)/close(t+1)-1。
     top_q, bottom_q : float
         多头/空头分位数阈值，默认 0.2 表示前/后 20%。
+    universe : pd.DataFrame | None
+        可选 PIT 成员掩码 (date × symbols, bool)。给定时，截面分位数只在
+        当日成员内计算——防止非成员股票扭曲阈值。前向收益仍用真实价格
+        （出指数 ≠ 退市，收益照常实现）。
 
     Returns
     -------
@@ -84,6 +89,9 @@ def build_labels(
         与 close_matrix 同 index/columns，元素为 {1, 0, NaN}。
     """
     fwd_ret = _compute_fwd_return(close_matrix, fwd_days)
+    if universe is not None:
+        mask = universe.reindex_like(fwd_ret).fillna(False).astype(bool)
+        fwd_ret = fwd_ret.where(mask)
     labels = fwd_ret.apply(
         lambda row: _daily_quantile_label(row, top_q=top_q, bottom_q=bottom_q),
         axis=1,

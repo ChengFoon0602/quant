@@ -14,7 +14,8 @@
 
 - 回测 Universe 必须包含历史上被剔除/退市的股票，不能用"当前成分股"回看历史
 - 每个交易日使用的成分股列表必须是 Point-in-Time (PIT) 的历史快照
-- `data/fetcher.py` 当前拉的是最新 CSI 300 成分股，这一步本身就带幸存者偏差——后续需切换到 PIT 数据源
+- **PIT 基础设施已就位（2026-07）**：`data/index_membership.py` 提供沪深 300 历史成员矩阵（baostock 月末快照，790 只含退市股，缓存于 `data/cache_meta/hs300_membership.csv`）；特征矩阵用 `strategies/feature_selection/build_pit_matrix.py` 生成。新截面策略必须走这条链路
+- **Universe 必须显式声明，禁止用缓存目录切片决定股票池**。曾因 `sorted(cache)[:300]` 在缓存扩容后漂移成 298 只纯深市股票，导致 models/ 全部结论建立在"事故 universe"上（LS 夏普 2.13 实为 0.08，见 `models/report.md`「方法论修正 II」）。股票池只能来自：显式名单文件 / 成员矩阵 / X_matrix 自身的股票集合
 
 ### 3. 摩擦成本 (Friction Costs)
 

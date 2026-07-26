@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore")
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.fetcher import cache_summary, load_daily
+from data.fetcher import load_daily
 from models.labels import align_X_y, build_labels
 
 # ── 配置 ─────────────────────────────────────────────────
@@ -78,9 +78,9 @@ def load_data():
     # market_vol_20d
     market_vol = X_long["market_vol_20d"].unstack(level=1).iloc[:, 0]  # 每天所有股票相同
 
-    # 重建 close_matrix
-    cache = cache_summary()
-    symbols = sorted(cache["symbol"].tolist())[:300]
+    # 重建 close_matrix：只取 X_matrix 内实际出现的股票
+    # （禁止 sorted(cache)[:300] 切片：缓存扩容后该切片会漂移）
+    symbols = sorted(X_long.index.get_level_values(1).unique())
     close_data = {}
     for sym in symbols:
         df = load_daily(sym)
@@ -95,12 +95,13 @@ def load_data():
     alpha001 = alpha001[common_stocks]
     close_matrix = close_matrix[common_stocks]
 
-    # 市场基准：等权持有全部股票
-    market_ret = close_matrix.pct_change().shift(-2) / close_matrix.pct_change().shift(-1) - 1
-    # 市场基准：等权持有全部股票的 overlapped 日收益（同 hold_days=5）
+    # 市场基准：当日指数成员（= X_matrix 出现的样本）的等权日收益。
+    # 权重恒定等权 → 无重叠 tranche，直接取截面均值；
+    # 旧版 rolling(5).mean() 是平滑陷阱残留（虚压波动 → 基准夏普虚高），已移除
+    member_mask = pd.Series(True, index=X_long.index).unstack(fill_value=False)
     daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
-    market_signal = daily_ret.mean(axis=1)
-    market_ret = market_signal.rolling(5).mean().dropna()
+    mask_aligned = member_mask.reindex_like(daily_ret).fillna(False).astype(bool)
+    market_ret = daily_ret.where(mask_aligned).mean(axis=1).dropna()
 
     return pred_lgb, alpha001, close_matrix, market_ret, market_vol, X_long
 
@@ -427,7 +428,9 @@ def main():
 
     # ── 条件归因 ──
     print("\n条件 Alpha 归因（按 market_vol_20d 分高低波动）...")
-    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2)
+    universe = pd.Series(True, index=X_long.index).unstack(fill_value=False)
+    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2,
+                          universe=universe)
     aligned = align_X_y(X_long, labels)
 
     # 用 fold 5 模型做条件归因（训练数据最多）

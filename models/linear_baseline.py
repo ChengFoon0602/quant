@@ -37,7 +37,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.fetcher import cache_summary, load_daily
+from data.fetcher import load_daily
 from models.cv import PurgedTimeSeriesSplit
 from models.evaluate import evaluate_oof
 from models.labels import align_X_y, build_labels
@@ -56,7 +56,7 @@ ALPHA_COLS = [
 ]
 
 
-def load_features_and_close(feature_dir: Path = FEATURE_DIR, n_stocks: int = 300):
+def load_features_and_close(feature_dir: Path = FEATURE_DIR):
     """读取 X_matrix.csv 并重建 close_matrix。"""
     x_path = feature_dir / "X_matrix.csv"
     if not x_path.exists():
@@ -69,8 +69,8 @@ def load_features_and_close(feature_dir: Path = FEATURE_DIR, n_stocks: int = 300
     X_long = X_raw.set_index(["date", stock_col])
     X_long = X_long.astype(float)
 
-    cache = cache_summary()
-    symbols = sorted(cache["symbol"].tolist())[:n_stocks]
+    # close_matrix 只取 X_matrix 内实际出现的股票（禁止 sorted(cache)[:300] 切片）
+    symbols = sorted(X_long.index.get_level_values(1).unique())
     close_data = {}
     for sym in symbols:
         df = load_daily(sym)
@@ -159,7 +159,9 @@ def run_baseline(method: str = "equal") -> tuple[pd.DataFrame, dict]:
     print("=" * 70)
 
     X_long, close_matrix = load_features_and_close()
-    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2)
+    universe = pd.Series(True, index=X_long.index).unstack(fill_value=False)
+    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2,
+                          universe=universe)
     aligned = align_X_y(X_long, labels)
     aligned = aligned.sort_index(level=0)
 
