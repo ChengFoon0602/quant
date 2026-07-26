@@ -41,5 +41,8 @@ models/baseline_comparison.csv
 # 组合回测生成物 (通过 portfolio_backtest.py 重新生成)
 models/portfolio_backtest_summary.csv
 
+# 因子归因生成物 (通过 factor_attribution.py 重新生成)
+models/factor_attribution.csv
+
 # Jupyter
 .ipynb_checkpoints/

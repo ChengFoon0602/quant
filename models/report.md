@@ -255,22 +255,59 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 
 ---
 
+## 因子归因：剥离市场 Beta
+
+### 方法
+
+由于项目没有标准沪深300指数、市值、账面价值数据，这里做**简化 CAPM 归因**：
+
+- **市场因子**：个股等权组合的 overlapped 5 日收益作为 MKT 代理
+- **无风险利率**：按 3% 年化近似（日利率 ≈ 0.012%）
+- **模型**：$R_p - R_f = \alpha + \beta \cdot (R_m - R_f) + \epsilon$
+- 额外提供 252 日滚动 alpha / beta，观察稳定性
+
+### CAPM 归因结果
+
+| 组合 | Alpha（年化） | Alpha t | Alpha p | Beta | Beta t | R² |
+|------|--------------|---------|---------|------|--------|-----|
+| **LightGBM Long-Short** | **+111.99%** | **19.49** | 0.0000 | 0.193 | 9.03 | 0.025 |
+| **LightGBM Long-only** | **+146.48%** | **23.41** | 0.0000 | 0.193 | 9.03 | 0.025 |
+| alpha001 Long-Short | -17.97% | -16.89 | 0.0000 | -0.006 | -0.87 | 0.000 |
+
+![因子归因 — 累计 Pure Alpha、Beta 暴露、滚动 Alpha/Beta](figures/factor_attribution.png)
+
+### 核心结论
+
+1. **Pure Alpha 极高且显著**：LightGBM LS 剥离市场 beta 后年化 alpha 仍达 **111.99%**，t 统计量 19.49，p < 0.0001。
+2. **市场 Beta 暴露很低**：LightGBM 组合的 beta 仅 **0.193**，说明收益不是来自赌方向，而是来自选股 alpha。R² 仅 0.025，意味着市场因子只能解释 2.5% 的收益波动。
+3. **Long-only 的 159% 年化并非纯 beta**：剥离 beta 后仍有 146% alpha，说明其主要来源是选股能力，而非简单做多市场。
+4. **alpha001 的负收益不是 beta 问题**：其 beta 接近 0，但 alpha 显著为负（-18% 年化），说明在 0.3% 成本下该因子本身无法产生经风险调整后的正收益。
+
+### 局限
+
+- 用个股等权组合代替真实沪深300指数，市场因子可能有偏差。
+- 没有做标准 Fama-French 三因子归因（缺少市值、账面价值数据）。
+- 滚动 alpha 显示 2020-2021 年 alpha 有明显下降，模型在近期市场环境中的稳健性需要持续监控。
+
+---
+
 ## 局限与下一步
 
 ### 当前局限
 
 1. **AUC 仅 0.552**：二分类区分能力较弱，模型主要在捕捉微弱的截面排序信号。
-2. **收益数字对成本假设敏感**：虽然 0.3% 成本下通过门槛，但 long-only 年化 159% 包含 A 股长期上涨 beta，需剥离后看 pure alpha。
-3. **未剥离市场 beta**：Long-only 组合收益中包含大量市场敞口，需要 CAPM / 三因子归因。
-4. **条件归因只用 fold 5 模型**：未来应汇总 5 个 fold 的条件重要性，减少抽样误差。
+2. **收益数字对成本假设敏感**：0.3% 成本下通过门槛，但不同券商费率下结果会有变化。
+3. **CAPM 归因使用代理市场因子**：用个股等权组合代替真实沪深300指数，beta/alpha 估计可能有偏差。
+4. **未做标准 Fama-French 三因子归因**：缺少市值、账面价值数据。
+5. **条件归因只用 fold 5 模型**：未来应汇总 5 个 fold 的条件重要性，减少抽样误差。
 
 ### 下一步
 
 1. ~~线性基线~~ ✅ 已完成
 2. ~~组合回测 + Bootstrap + 条件归因~~ ✅ 已完成
-3. **训练最终全量模型**：在整个历史上训练单一模型，用于未来预测/滚动回测
-4. **深度学习对照**：用同样的 `labels.py` 和 `cv.py`，构建 MLP/TabNet 训练脚本
-5. **因子 beta 剥离**：对组合收益做 CAPM / Fama-French 三因子归因，计算 pure alpha
+3. ~~因子 beta 剥离~~ ✅ 已完成
+4. **训练最终全量模型**：在整个历史上训练单一模型，用于未来预测/滚动回测
+5. **深度学习对照**：用同样的 `labels.py` 和 `cv.py`，构建 MLP/TabNet 训练脚本
 6. **降低调仓频率**：尝试周度/双周度 overlapped 组合，对比换手率和收益
 7. **动态仓位策略**：根据 `market_vol_20d` 做风险预算或开关，进一步降低回撤
 
@@ -319,7 +356,49 @@ python models/linear_baseline.py
 
 # 4. 组合回测 + 条件 Alpha 归因
 python models/portfolio_backtest.py
+
+# 5. 因子归因
+python models/factor_attribution.py
 ```
+
+## 输出文件
+
+| 文件 | 说明 |
+|------|------|
+| `models/labels.py` | 标签构建（模型无关） |
+| `models/cv.py` | Purged Time-Series Split（模型无关） |
+| `models/evaluate.py` | OOF 评估：Rank IC、五分位、多空曲线（模型无关） |
+| `models/lgbm_trainer.py` | LightGBM 训练主脚本 |
+| `models/linear_baseline.py` | 线性基线对比脚本 |
+| `models/portfolio_backtest.py` | 组合回测 + 条件归因脚本 |
+| `models/factor_attribution.py` | CAPM 因子归因脚本 |
+| `models/lgbm_fold_*.txt` | 5 折 CV 保存的模型 |
+| `models/oof_predictions.csv` | OOF 预测分数矩阵 |
+| `models/baseline_comparison.csv` | 线性基线 vs LightGBM 对比表 |
+| `models/portfolio_backtest_summary.csv` | 组合回测绩效汇总 |
+| `models/factor_attribution.csv` | CAPM 归因结果 |
+| `models/figures/lgbm_oof_summary.png` | LightGBM OOF 汇总（4 子图） |
+| `models/figures/baseline_metrics_comparison.png` | 线性基线 vs LightGBM 指标对比 |
+| `models/figures/baseline_cum_curve.png` | 线性基线 vs LightGBM 累计多空曲线 |
+| `models/figures/portfolio_backtest_summary.png` | 组合回测汇总（4 子图） |
+| `models/figures/conditional_attribution.png` | 条件 Alpha 归因 |
+| `models/figures/factor_attribution.png` | CAPM 因子归因（4 子图） |
+| `models/report.md` | 本报告 |
+
+---
+
+## 关键参数
+
+| 参数 | 值 | 位置 |
+|------|-----|------|
+| 标签持有期 | 5 个交易日 | `models/labels.py` |
+| 标签分位数 | top 20% / bottom 20% | `models/labels.py` |
+| CV 折数 | 5 | `models/lgbm_trainer.py` |
+| Purge 天数 | 6 | `models/lgbm_trainer.py` |
+| 组合成本 | 0.3% 双边 | `models/portfolio_backtest.py` |
+| 组合持有 | 5 日 overlapped | `models/portfolio_backtest.py` |
+| Bootstrap block | 20 日 | `models/portfolio_backtest.py` |
+| 无风险利率 | 3% 年化 | `models/factor_attribution.py` |
 
 ---
 
