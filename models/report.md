@@ -439,6 +439,40 @@ Purged CV 的 OOF 预测是在一个"防泄露"的交叉验证框架下生成的
 
 ---
 
+## 深度学习对照：MLP vs LightGBM
+
+### 设计
+
+用 3 层 MLP（128→64→32, BatchNorm, Dropout 0.3, ReLU, BCEWithLogitsLoss）在相同的 Purged CV、标签、评估框架下训练。目标：量化神经网络与梯度提升树在截面因子合成上的性能差距。
+
+### 结果
+
+| 指标 | LightGBM | MLP |
+|------|----------|-----|
+| CV AUC | **0.5520** | 0.5186 |
+| OOF Rank IC | **+0.0926** | +0.0341 |
+| IC_IR | **0.5246** | 0.2091 |
+| LS 夏普 (hold=10) | **8.753** | 3.274 |
+| LS 年化 | **+159.83%** | +34.28% |
+| LS 最大回撤 | **-32.41%** | -37.11% |
+
+![MLP vs LightGBM — 累计净值、夏普、回撤对比](figures/nn_vs_lgbm_comparison.png)
+
+### 结论
+
+- **MLP 在所有指标上明显弱于 LightGBM**：AUC 仅比随机好 1.86 个百分点，IC_IR 不到 LightGBM 的一半。
+- 这不是"深度学习比树模型差"的通用结论，而是**在这个具体任务上**（18 维低信噪比截面分类、~40 万样本），树模型的归纳偏置（特征交互、对噪声鲁棒、处理非单调关系）天然适配。
+- MLP 的梯度下降在信噪比极低的任务上容易被噪声主导，而 LightGBM 的贪心分裂天然过滤弱特征。
+- 这个结果也说明：非线性增益来自**树结构对特征空间的递归划分**，而非单纯的"非线性激活函数"。
+
+### 局限
+
+- 仅训练了基础 MLP（3 层，~25K 参数），未尝试 TabNet、FT-Transformer 等专为表格数据设计的深度架构。
+- 学习率、batch size、dropout 等超参数用了默认值，未做网格搜索。
+- 结论不排除更复杂的深度架构（如残差连接、embedding、attention）能达到接近或超过 LightGBM 的水平。
+
+---
+
 ## 局限与下一步
 
 ### 当前局限
@@ -457,7 +491,8 @@ Purged CV 的 OOF 预测是在一个"防泄露"的交叉验证框架下生成的
 5. ~~调仓频率优化~~ ✅ 已完成
 6. ~~动态仓位策略~~ ✅ 已完成
 7. ~~滚动回测~~ ✅ 已完成
-8. **深度学习对照**：用同样的 `labels.py` 和 `cv.py`，构建 MLP/TabNet 训练脚本
+8. ~~深度学习对照~~ ✅ 已完成
+9. **TabNet / FT-Transformer 对照**：测试专为表格数据设计的深度架构
 
 ---
 
@@ -483,6 +518,12 @@ python models/factor_attribution.py
 
 # 6. 训练最终全量模型
 python models/train_final_model.py
+
+# 7. 滚动回测
+python models/walk_forward.py
+
+# 8. 深度学习对照
+python models/nn_trainer.py
 ```
 
 ## 输出文件
@@ -498,6 +539,7 @@ python models/train_final_model.py
 | `models/factor_attribution.py` | CAPM 因子归因脚本 |
 | `models/train_final_model.py` | 最终全量模型训练脚本 |
 | `models/walk_forward.py` | 滚动前向回测脚本 |
+| `models/nn_trainer.py` | MLP 深度学习对照脚本 |
 | `models/lgbm_fold_*.txt` | 5 折 CV 保存的模型 |
 | `models/lgbm_final_model.txt` | 最终全量模型 |
 | `models/oof_predictions.csv` | OOF 预测分数矩阵 |
@@ -514,6 +556,7 @@ python models/train_final_model.py
 | `models/figures/final_model_summary.png` | 最终模型特征重要性与 CV 迭代 |
 | `models/figures/execution_optimization.png` | 调仓频率 + 动态仓位优化（4 子图） |
 | `models/figures/walk_forward_summary.png` | 滚动回测汇总（4 子图） |
+| `models/figures/nn_vs_lgbm_comparison.png` | MLP vs LightGBM 对比 |
 | `models/report.md` | 本报告 |
 
 ---

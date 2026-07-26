@@ -52,5 +52,8 @@ models/final_model_feature_importance.csv
 models/walk_forward_summary.csv
 models/walk_forward_yearly.csv
 
+# 深度学习生成物 (通过 nn_trainer.py 重新生成)
+models/nn_vs_lgbm_summary.csv
+
 # Jupyter
 .ipynb_checkpoints/
