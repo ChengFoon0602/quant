@@ -33,5 +33,10 @@ models/oof_predictions.csv
 models/feature_importance.csv
 models/summary.json
 
+# 线性基线生成物 (通过 linear_baseline.py 重新生成)
+models/oof_pred_equal_weight.csv
+models/oof_pred_icir_weight.csv
+models/baseline_comparison.csv
+
 # Jupyter
 .ipynb_checkpoints/

@@ -103,6 +103,21 @@ def get_valid_samples(
     return X[mask], y[mask]
 
 
+def align_X_y(
+    X_long: pd.DataFrame,
+    labels: pd.DataFrame,
+) -> pd.DataFrame:
+    """把长格式 X 与 宽格式 labels 对齐，生成训练样本表 (date, stock)。"""
+    y_long = labels.stack().rename("label").reset_index()
+    y_long.columns = ["date", "symbol", "label"]
+    X_reset = X_long.reset_index()
+    X_reset["symbol"] = X_reset["symbol"].astype(str)
+    y_long["symbol"] = y_long["symbol"].astype(str)
+    aligned = X_reset.merge(y_long, on=["date", "symbol"], how="inner")
+    aligned = aligned.set_index(["date", "symbol"])
+    return aligned
+
+
 def build_sample_weights(
     y: pd.Series,
     class_weight: str = "balanced",

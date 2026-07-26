@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from data.fetcher import cache_summary, load_daily
 from models.cv import PurgedTimeSeriesSplit
 from models.evaluate import evaluate_oof
-from models.labels import build_labels, get_valid_samples, build_sample_weights
+from models.labels import align_X_y, build_labels, build_sample_weights, get_valid_samples
 
 # ── 路径 ─────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -113,22 +113,6 @@ def load_features_and_close(
     close_matrix = close_matrix[common_stocks]
 
     return X_long, close_matrix
-
-
-def align_X_y(
-    X_long: pd.DataFrame,
-    labels: pd.DataFrame,
-) -> pd.DataFrame:
-    """把长格式 X 与 宽格式 labels 对齐，生成训练样本表。"""
-    y_long = labels.stack().rename("label").reset_index()
-    y_long.columns = ["date", "symbol", "label"]
-    X_reset = X_long.reset_index()
-    # 确保 symbol 类型一致
-    X_reset["symbol"] = X_reset["symbol"].astype(str)
-    y_long["symbol"] = y_long["symbol"].astype(str)
-    aligned = X_reset.merge(y_long, on=["date", "symbol"], how="inner")
-    aligned = aligned.set_index(["date", "symbol"])
-    return aligned
 
 
 def _train_one_fold(

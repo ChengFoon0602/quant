@@ -167,15 +167,23 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 
 ## 与线性基线的对比
 
-作为后续深度学习/非线性研究的基准，当前 LightGBM 的结果可作为参照：
+使用完全相同的 16 个 alpha 因子、相同的 5 日截面分类标签、相同的 Purged CV 和评估框架，对比两种线性合成与 LightGBM 的非线性合成：
 
-| 模型 | IC_IR | 多空年化 | 多空夏普 |
-|------|-------|----------|----------|
-| 等权线性（16 因子） | 待计算 | 待计算 | 待计算 |
-| ICIR 加权线性 | 待计算 | 待计算 | 待计算 |
-| **LightGBM 非线性** | **0.52** | **40.1%** | **1.32** |
+| 方法 | Rank IC | IC_IR | IC t | 多空年化 | 多空夏普 | 最大回撤 |
+|------|---------|-------|------|----------|----------|----------|
+| 等权线性 | +0.0419 | 0.2811 | 15.99 | **-34.77%** | -1.986 | -99.82% |
+| ICIR 加权线性 | +0.0565 | 0.3427 | 19.49 | **-20.58%** | -1.040 | -99.08% |
+| **LightGBM 非线性** | **+0.0926** | **0.5246** | **29.84** | **+40.08%** | **1.321** | -53.91% |
 
-> 下一步：补做等权/ICIR 加权线性合成，用完全相同的标签和评估框架，量化 LightGBM 的非线性增益。
+![线性基线 vs LightGBM 指标对比](figures/baseline_metrics_comparison.png)
+
+![线性基线 vs LightGBM 累计多空曲线](figures/baseline_cum_curve.png)
+
+**关键判断**：
+
+- 线性合成在这个因子池上是**失效的**：即使使用带符号 ICIR 加权正确处理负向因子方向，多空组合仍为负收益，回撤接近 -100%。
+- 非线性组合把 IC_IR 从 0.34 提升到 **0.52**（+53%），多空夏普从 -1.04 提升到 **+1.32**。
+- 这说明 16 个低冗余因子中包含了可以被非线性结构利用的信息，但简单的线性加权无法提取。市场状态特征与因子之间的交互、因子内部的方向非线性，是 LightGBM 的主要收益来源。
 
 ---
 
@@ -190,11 +198,12 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 
 ### 下一步
 
-1. **线性基线**：等权 / ICIR 加权 vs LightGBM，验证非线性增益。
-2. **深度学习对照**：用同样的 `labels.py` 和 `cv.py`，构建 MLP/TabNet 训练脚本。
-3. **换仓可行性**：降低调仓频率（周度/双周度），或加入换手率惩罚。
-4. **Bootstrap 检验**：对 OOF 日收益做重采样，确认 SR 的置信区间。
-5. **Regime 策略**：根据 `market_vol_20d` 做动态仓位/开关，降低回撤。
+1. ~~线性基线~~ ✅ 已完成：LightGBM 非线性增益显著
+2. **训练最终全量模型**：在整个历史上训练单一模型，用于未来预测/滚动回测
+3. **深度学习对照**：用同样的 `labels.py` 和 `cv.py`，构建 MLP/TabNet 训练脚本
+4. **换仓可行性**：降低调仓频率（周度/双周度），或加入换手率惩罚
+5. **Bootstrap 检验**：对 OOF 日收益做重采样，确认 SR 的置信区间
+6. **Regime 策略**：根据 `market_vol_20d` 做动态仓位/开关，降低回撤
 
 ---
 
@@ -210,7 +219,13 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 | `models/oof_predictions.csv` | OOF 预测分数矩阵 (date × stocks) |
 | `models/feature_importance.csv` | 每折 + 平均特征重要性 |
 | `models/summary.json` | 关键指标 JSON |
+| `models/linear_baseline.py` | 线性基线对比脚本 |
+| `models/oof_pred_equal_weight.csv` | 等权线性 OOF 预测矩阵 |
+| `models/oof_pred_icir_weight.csv` | ICIR 加权线性 OOF 预测矩阵 |
+| `models/baseline_comparison.csv` | 线性基线 vs LightGBM 对比表 |
 | `models/figures/lgbm_oof_summary.png` | 4 张 OOF 汇总图 |
+| `models/figures/baseline_metrics_comparison.png` | 线性基线 vs LightGBM 指标对比 |
+| `models/figures/baseline_cum_curve.png` | 线性基线 vs LightGBM 累计多空曲线 |
 | `models/report.md` | 本报告 |
 
 ---
@@ -225,6 +240,9 @@ python strategies/feature_selection/select_features.py
 
 # 2. 训练 LightGBM
 python models/lgbm_trainer.py
+
+# 3. 线性基线对比
+python models/linear_baseline.py
 ```
 
 ---
