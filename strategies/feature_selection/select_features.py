@@ -251,7 +251,9 @@ def main():
     y_long = fwd_ret.stack().rename("fwd_return")
     y = y_long.loc[X.index]
 
-    # 保存
+    # 保存（明确命名 index level，避免后续读取时 symbol 被解析为整数）
+    X.index.names = ["date", "symbol"]
+    y.index.names = ["date", "symbol"]
     X.to_csv(Path(__file__).parent / "X_matrix.csv")
     y.to_csv(Path(__file__).parent / "y_matrix.csv")
     print(f"  X: {X.shape} (样本 × 特征)")

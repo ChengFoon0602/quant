@@ -27,5 +27,11 @@ Thumbs.db
 strategies/feature_selection/X_matrix.csv
 strategies/feature_selection/y_matrix.csv
 
+# LightGBM 模型生成物 (通过 lgbm_trainer.py 重新生成)
+models/lgbm_fold_*.txt
+models/oof_predictions.csv
+models/feature_importance.csv
+models/summary.json
+
 # Jupyter
 .ipynb_checkpoints/
