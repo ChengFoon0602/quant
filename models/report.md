@@ -291,6 +291,54 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 
 ---
 
+## 最终全量模型
+
+### 训练逻辑
+
+最终模型不用于历史 OOF 评估，而是用于**未来预测 / 滚动回测**。训练方法：
+
+1. 复用 Purged CV 确定的超参数（`max_depth=5`, `num_leaves=31`, `learning_rate=0.05` 等）。
+2. 读取 5 个 fold 模型的实际树数量，取平均作为最终模型的 `num_boost_round`。
+3. 在全部历史数据（418,456 个有效标签样本）上训练单一模型。
+4. 保存为 `models/lgbm_final_model.txt`。
+
+### CV 迭代次数
+
+| Fold | Best Iteration |
+|------|----------------|
+| 1 | 40 |
+| 2 | 53 |
+| 3 | 159 |
+| 4 | 74 |
+| 5 | 71 |
+| **Mean** | **79** |
+
+最终模型使用 **79 轮** 训练。
+
+### 最终模型特征重要性
+
+| 排名 | 特征 | Gain | Split |
+|------|------|------|-------|
+| 1 | market_vol_20d | 55,466 | 3,460 |
+| 2 | market_turnover_20d | 50,371 | 3,361 |
+| 3 | alpha051 | 33,717 | 1,675 |
+| 4 | alpha011 | 22,566 | 1,645 |
+| 5 | alpha068 | 21,041 | 1,379 |
+| 6 | alpha108 | 20,304 | 1,612 |
+| 7 | alpha055 | 19,448 | 1,431 |
+| 8 | alpha144 | 16,717 | 1,171 |
+| 9 | alpha003 | 16,283 | 1,409 |
+| 10 | alpha001 | 15,380 | 1,325 |
+
+![最终模型特征重要性与 CV 迭代次数](figures/final_model_summary.png)
+
+### 说明
+
+- 最终模型与 OOF 模型的特征重要性排序略有不同：全量数据上 `alpha001` 升至第 10，而条件归因中它排名靠后。这反映了样本量扩大后，某些因子的边际贡献会变化。
+- 该模型可用于生成未来交易日的截面买入概率，供滚动回测或模拟交易调用。
+
+---
+
 ## 局限与下一步
 
 ### 当前局限
@@ -306,37 +354,11 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 1. ~~线性基线~~ ✅ 已完成
 2. ~~组合回测 + Bootstrap + 条件归因~~ ✅ 已完成
 3. ~~因子 beta 剥离~~ ✅ 已完成
-4. **训练最终全量模型**：在整个历史上训练单一模型，用于未来预测/滚动回测
+4. ~~训练最终全量模型~~ ✅ 已完成
 5. **深度学习对照**：用同样的 `labels.py` 和 `cv.py`，构建 MLP/TabNet 训练脚本
 6. **降低调仓频率**：尝试周度/双周度 overlapped 组合，对比换手率和收益
-7. **动态仓位策略**：根据 `market_vol_20d` 做风险预算或开关，进一步降低回撤
-
----
-
-## 输出文件
-
-| 文件 | 说明 |
-|------|------|
-| `models/labels.py` | 标签构建（模型无关） |
-| `models/cv.py` | Purged Time-Series Split（模型无关） |
-| `models/evaluate.py` | OOF 评估：Rank IC、五分位、多空曲线（模型无关） |
-| `models/lgbm_trainer.py` | LightGBM 训练主脚本 |
-| `models/lgbm_fold_*.txt` | 5 折 CV 保存的模型 |
-| `models/oof_predictions.csv` | OOF 预测分数矩阵 (date × stocks) |
-| `models/feature_importance.csv` | 每折 + 平均特征重要性 |
-| `models/summary.json` | 关键指标 JSON |
-| `models/linear_baseline.py` | 线性基线对比脚本 |
-| `models/portfolio_backtest.py` | 组合回测 + 条件归因脚本 |
-| `models/oof_pred_equal_weight.csv` | 等权线性 OOF 预测矩阵 |
-| `models/oof_pred_icir_weight.csv` | ICIR 加权线性 OOF 预测矩阵 |
-| `models/baseline_comparison.csv` | 线性基线 vs LightGBM 对比表 |
-| `models/portfolio_backtest_summary.csv` | 组合回测绩效汇总 |
-| `models/figures/lgbm_oof_summary.png` | LightGBM OOF 汇总（4 子图） |
-| `models/figures/baseline_metrics_comparison.png` | 线性基线 vs LightGBM 指标对比 |
-| `models/figures/baseline_cum_curve.png` | 线性基线 vs LightGBM 累计多空曲线 |
-| `models/figures/portfolio_backtest_summary.png` | 组合回测汇总（4 子图） |
-| `models/figures/conditional_attribution.png` | 条件 Alpha 归因 |
-| `models/report.md` | 本报告 |
+7. **滚动回测框架**：用 `lgbm_final_model.txt` 做前向滚动回测，验证样本外稳健性
+8. **动态仓位策略**：根据 `market_vol_20d` 做风险预算或开关，进一步降低回撤
 
 ---
 
@@ -359,6 +381,9 @@ python models/portfolio_backtest.py
 
 # 5. 因子归因
 python models/factor_attribution.py
+
+# 6. 训练最终全量模型
+python models/train_final_model.py
 ```
 
 ## 输出文件
@@ -372,17 +397,21 @@ python models/factor_attribution.py
 | `models/linear_baseline.py` | 线性基线对比脚本 |
 | `models/portfolio_backtest.py` | 组合回测 + 条件归因脚本 |
 | `models/factor_attribution.py` | CAPM 因子归因脚本 |
+| `models/train_final_model.py` | 最终全量模型训练脚本 |
 | `models/lgbm_fold_*.txt` | 5 折 CV 保存的模型 |
+| `models/lgbm_final_model.txt` | 最终全量模型 |
 | `models/oof_predictions.csv` | OOF 预测分数矩阵 |
 | `models/baseline_comparison.csv` | 线性基线 vs LightGBM 对比表 |
 | `models/portfolio_backtest_summary.csv` | 组合回测绩效汇总 |
 | `models/factor_attribution.csv` | CAPM 归因结果 |
+| `models/final_model_feature_importance.csv` | 最终模型特征重要性 |
 | `models/figures/lgbm_oof_summary.png` | LightGBM OOF 汇总（4 子图） |
 | `models/figures/baseline_metrics_comparison.png` | 线性基线 vs LightGBM 指标对比 |
 | `models/figures/baseline_cum_curve.png` | 线性基线 vs LightGBM 累计多空曲线 |
 | `models/figures/portfolio_backtest_summary.png` | 组合回测汇总（4 子图） |
 | `models/figures/conditional_attribution.png` | 条件 Alpha 归因 |
 | `models/figures/factor_attribution.png` | CAPM 因子归因（4 子图） |
+| `models/figures/final_model_summary.png` | 最终模型特征重要性与 CV 迭代 |
 | `models/report.md` | 本报告 |
 
 ---
@@ -399,24 +428,4 @@ python models/factor_attribution.py
 | 组合持有 | 5 日 overlapped | `models/portfolio_backtest.py` |
 | Bootstrap block | 20 日 | `models/portfolio_backtest.py` |
 | 无风险利率 | 3% 年化 | `models/factor_attribution.py` |
-
----
-
-## 关键参数
-
-| 参数 | 值 | 位置 |
-|------|-----|------|
-| 标签持有期 | 5 个交易日 | `models/labels.py` |
-| 标签分位数 | top 20% / bottom 20% | `models/labels.py` |
-| CV 折数 | 5 | `models/lgbm_trainer.py` |
-| Purge 天数 | 6 | `models/lgbm_trainer.py` |
-| 组合成本 | 0.3% 双边 | `models/portfolio_backtest.py` |
-| 组合持有 | 5 日 overlapped | `models/portfolio_backtest.py` |
-| Bootstrap block | 20 日 | `models/portfolio_backtest.py` |
-| Purge 天数 | 6 | `models/lgbm_trainer.py` |
-| max_depth | 5 | `models/lgbm_trainer.py` |
-| num_leaves | 31 | `models/lgbm_trainer.py` |
-| min_child_samples | 50 | `models/lgbm_trainer.py` |
-| 学习率 | 0.05 | `models/lgbm_trainer.py` |
-| early_stopping | 50 rounds | `models/lgbm_trainer.py` |
-| 多空成本 | 0.202% / 次 | `models/evaluate.py` |
+| 最终模型 boost round | CV 平均 num_trees | `models/train_final_model.py` |

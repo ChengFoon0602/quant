@@ -44,5 +44,9 @@ models/portfolio_backtest_summary.csv
 # 因子归因生成物 (通过 factor_attribution.py 重新生成)
 models/factor_attribution.csv
 
+# 最终模型生成物 (通过 train_final_model.py 重新生成)
+models/lgbm_final_model.txt
+models/final_model_feature_importance.csv
+
 # Jupyter
 .ipynb_checkpoints/
