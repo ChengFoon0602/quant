@@ -28,6 +28,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
+
+matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
+matplotlib.rcParams["axes.unicode_minus"] = False
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).parent.parent))
