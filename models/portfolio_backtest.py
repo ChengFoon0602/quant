@@ -113,13 +113,24 @@ def build_portfolio(
     bottom_q: float = BOTTOM_Q,
     cost: float = COST_BPS,
     hold_days: int = 5,
+    position_scale: pd.Series | None = None,
 ) -> pd.DataFrame:
-    """构建 overlapped 投资组合。
+    """构建 overlapped 投资组合 —— 基于权重追踪的真实每日 P&L。
 
-    信号日 t 收盘，t+1 开盘执行，每个信号持有 hold_days 个交易日。
-    第 t 天组合收益 = 过去 hold_days 天信号的日收益平均，
-    其中单个信号的日收益 = 其持仓股票在当天的 close(t+2)/close(t+1)-1。
-    成本按每天换仓比例摊薄：long-only = cost/hold_days，long-short = 2*cost/hold_days。
+    ⚠️ 方法论修正（2026-07）：旧实现对"信号收益序列"做 rolling(hold_days).mean()，
+    等于把 10 个不同日历日的收益平均后盖上"第 t 天"的戳，是移动平均滤波，
+    人为把日波动压掉 √hold_days 倍 → 夏普虚高 ~8x。见 build_portfolio_naive 与
+    report.md「方法论修正」章节。
+
+    正确构造（Method 1）：
+      1. 每天由 signal[t] 生成目标权重向量 w[t]（多头 +1/n_top，空头 -1/n_bottom）。
+      2. 实际持仓 W[t] = 过去 hold_days 天目标权重的平均（重叠 tranche）。
+      3. 第 t 天组合收益 = W[t-1] · daily_ret[t]，其中
+         daily_ret[t] = close(t+2)/close(t+1)-1（无未来函数）。
+         所有 tranche 在同一天经历同一市场波动 → 无虚假平滑。
+      4. 成本 = 每日换手 sum|ΔW| × 单边成本(cost/2)。cost 为双边(round-trip)成本。
+
+    position_scale: 可选的逐日仓位系数（如高波动降半仓），index 对齐交易日。
     """
     # 无未来函数的日收益：close(t+2)/close(t+1)-1
     daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
@@ -129,52 +140,90 @@ def build_portfolio(
     p = pred_df.loc[common_dates, common_cols]
     r = daily_ret.loc[common_dates, common_cols]
 
-    signal_rets = []
-    top_rets = []
-    bottom_rets = []
+    # ── 每天生成目标权重向量 w[t] ──
+    W_target = pd.DataFrame(0.0, index=common_dates, columns=common_cols)
     for d in common_dates:
         pv = p.loc[d]
-        rv = r.loc[d]
+        mask = pv.notna()
+        if mask.sum() < max(int(1 / top_q), int(1 / bottom_q)) * 3:
+            continue
+        valid_p = pv[mask]
+        top_thr = valid_p.quantile(1 - top_q)
+        bottom_thr = valid_p.quantile(bottom_q)
+        top = valid_p[valid_p >= top_thr].index
+        bottom = valid_p[valid_p <= bottom_thr].index
+        if len(top):
+            W_target.loc[d, top] = 1.0 / len(top)
+        if not long_only and len(bottom):
+            W_target.loc[d, bottom] = -1.0 / len(bottom)
+
+    # ── 实际持仓 = 过去 hold_days 天目标权重的平均（重叠 tranche）──
+    W_held = W_target.rolling(hold_days, min_periods=1).mean()
+
+    # 逐日仓位系数（动态仓位）
+    if position_scale is not None:
+        scale = position_scale.reindex(W_held.index).ffill().fillna(1.0)
+        W_held = W_held.mul(scale, axis=0)
+
+    # ── 第 t 天 P&L = 昨日持仓 · 今日股票收益 ──
+    W_lag = W_held.shift(1)
+    port_gross = (W_lag * r).sum(axis=1, min_count=1)
+
+    # ── 换手成本：每日 sum|ΔW| × 单边成本(cost/2)──
+    turnover = (W_held - W_held.shift(1)).abs().sum(axis=1)
+    port_ret = port_gross - turnover * (cost / 2.0)
+
+    # 丢弃建仓爬坡期
+    port_ret = port_ret.iloc[hold_days:].dropna()
+    cum = (1 + port_ret).cumprod()
+
+    df = pd.DataFrame({"port_ret": port_ret, "turnover": turnover.reindex(port_ret.index)})
+    df["cum"] = cum
+    return df
+
+
+def build_portfolio_naive(
+    pred_df: pd.DataFrame,
+    close_matrix: pd.DataFrame,
+    long_only: bool = False,
+    top_q: float = TOP_Q,
+    bottom_q: float = BOTTOM_Q,
+    cost: float = COST_BPS,
+    hold_days: int = 5,
+) -> pd.DataFrame:
+    """⚠️ 错误的旧实现，仅供「方法论修正」章节对比展示，禁止用于生产结论。
+
+    对"信号收益序列"做 rolling(hold_days).mean() → 移动平均平滑 → 夏普虚高 √hold_days 倍。
+    """
+    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    common_dates = pred_df.index.intersection(daily_ret.index)
+    common_cols = pred_df.columns.intersection(daily_ret.columns)
+    p = pred_df.loc[common_dates, common_cols]
+    r = daily_ret.loc[common_dates, common_cols]
+
+    signal_rets = []
+    for d in common_dates:
+        pv, rv = p.loc[d], r.loc[d]
         mask = pv.notna() & rv.notna()
         if mask.sum() < max(int(1 / top_q), int(1 / bottom_q)) * 3:
             signal_rets.append(np.nan)
-            top_rets.append(np.nan)
-            bottom_rets.append(np.nan)
             continue
-
-        valid_p = pv[mask]
-        valid_r = rv[mask]
+        valid_p, valid_r = pv[mask], rv[mask]
         top_thr = valid_p.quantile(1 - top_q)
         bottom_thr = valid_p.quantile(bottom_q)
-
         top_ret = valid_r[valid_p >= top_thr].mean()
-        bottom_ret = valid_r[valid_p <= bottom_thr].mean()
-
+        bottom_ret = valid_r[valid_p <= bottom_thr].mean() if not long_only else 0.0
         signal_rets.append(top_ret - bottom_ret)
-        top_rets.append(top_ret)
-        bottom_rets.append(bottom_ret)
 
     signal_series = pd.Series(signal_rets, index=common_dates)
-    # overlapped: each day's portfolio = average of past hold_days signals
     port_ret = signal_series.rolling(hold_days).mean()
-
-    # 成本摊薄：每天新开 1/hold_days 仓位；long-short 有双边
     if long_only:
         port_ret = port_ret - cost / hold_days
     else:
         port_ret = port_ret - 2 * cost / hold_days
-
     port_ret = port_ret.dropna()
     cum = (1 + port_ret).cumprod()
-
-    df = pd.DataFrame({
-        "port_ret": port_ret,
-        "signal_ret": pd.Series(signal_rets, index=common_dates).reindex(port_ret.index),
-        "top_ret": pd.Series(top_rets, index=common_dates).reindex(port_ret.index),
-        "bottom_ret": pd.Series(bottom_rets, index=common_dates).reindex(port_ret.index),
-    })
-    df["cum"] = cum
-    return df
+    return pd.DataFrame({"port_ret": port_ret, "cum": cum})
 
 
 def performance_metrics(ret_series: pd.Series) -> dict:

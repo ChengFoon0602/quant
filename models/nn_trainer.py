@@ -254,8 +254,10 @@ def main():
     from models.portfolio_backtest import load_data as pb_load
     pred_lgb, _, cm, _, _, _ = pb_load()
     port_lgb = build_portfolio(pred_lgb, cm, long_only=False, cost=0.003, hold_days=10)
+    m_lgb = performance_metrics(port_lgb["port_ret"])
+    lgb_sr = m_lgb["sharpe"]
     ax.plot(port_lgb["cum"].index, port_lgb["cum"].values, linewidth=1.2, color="#2ca02c",
-            alpha=0.7, label=f"LightGBM (SR=8.75)")
+            alpha=0.7, label=f"LightGBM (SR={lgb_sr:.2f})")
     ax.axhline(1, color="black", linewidth=0.5)
     ax.set_yscale("log")
     ax.set_title("累计净值（对数坐标）")
@@ -265,8 +267,8 @@ def main():
 
     ax = axes[1]
     methods = ["LightGBM", "MLP"]
-    sharpes = [8.753, m_nn["sharpe"]]
-    dds = [32.41, -m_nn["mdd"] * 100]
+    sharpes = [lgb_sr, m_nn["sharpe"]]
+    dds = [-m_lgb["mdd"] * 100, -m_nn["mdd"] * 100]
     colors_sr = ["#2ca02c", "#9467bd"]
     bars = ax.bar(methods, sharpes, color=colors_sr, edgecolor="white")
     ax.axhline(0, color="black", linewidth=0.5)
@@ -294,7 +296,7 @@ def main():
         "model": "MLP", "cv_auc_mean": np.mean(fold_aucs), "cv_auc_std": np.std(fold_aucs),
         "ic_ir": metrics["ic_ir"], "ls_sharpe": m_nn["sharpe"],
         "ls_annual": m_nn["annual"], "ls_mdd": m_nn["mdd"],
-        "lgb_sharpe_cv": 8.753, "lgb_sharpe_wf": lgb_sharpe,
+        "lgb_sharpe_cv": lgb_sr, "lgb_annual_cv": m_lgb["annual"], "lgb_sharpe_wf": lgb_sharpe,
     }]).to_csv(MODEL_DIR / "nn_vs_lgbm_summary.csv", index=False)
 
     print("\nMLP 训练完成。")

@@ -55,5 +55,15 @@ models/walk_forward_yearly.csv
 # 深度学习生成物 (通过 nn_trainer.py 重新生成)
 models/nn_vs_lgbm_summary.csv
 
+# 调仓/动态仓位优化生成物 (通过 execution_optimization.py 重新生成)
+models/execution_optimization_freq.csv
+models/execution_optimization_dyn.csv
+
+# 方法论修正诊断生成物 (通过 methodology_correction.py 重新生成)
+models/methodology_correction.csv
+
+# 临时诊断脚本 (scratch)
+_diag_*.py
+
 # Jupyter
 .ipynb_checkpoints/
