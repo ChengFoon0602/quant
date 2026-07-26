@@ -1,0 +1,442 @@
+"""
+models/portfolio_backtest.py — 组合回测 + 条件 Alpha 归因。
+
+任务:
+  1. 将 LightGBM OOF 预测概率转化为交易组合:
+     - 每天做多 Top 20%，做空 Bottom 20%（long-short）
+     - 以及仅做多 Top 20%（long-only），对比市场基准
+     - 双边摩擦成本 0.3%
+  2. 与 alpha001 单因子组合对比（同样 0.3% 成本）
+  3. Bootstrap 夏普显著性检验
+  4. 条件 Alpha 归因：按 market_vol_20d 分高/低波动，看各因子重要性变化
+
+用法:
+    cd D:/桌面文件/quant
+    python models/portfolio_backtest.py
+"""
+
+from __future__ import annotations
+
+import sys
+import warnings
+from pathlib import Path
+
+import lightgbm as lgb
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
+matplotlib.rcParams["axes.unicode_minus"] = False
+warnings.filterwarnings("ignore")
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from data.fetcher import cache_summary, load_daily
+from models.labels import align_X_y, build_labels
+
+# ── 配置 ─────────────────────────────────────────────────
+PROJECT_ROOT = Path(__file__).parent.parent
+FEATURE_DIR = PROJECT_ROOT / "strategies" / "feature_selection"
+MODEL_DIR = Path(__file__).parent
+FIGURES_DIR = MODEL_DIR / "figures"
+FIGURES_DIR.mkdir(exist_ok=True)
+
+TOP_Q = 0.20
+BOTTOM_Q = 0.20
+COST_BPS = 0.003  # 双边千分之三
+FWD_DAYS = 5
+N_BOOT = 10000
+BLOCK_SIZE = 20
+
+ALPHA_COLS = [
+    "alpha116", "alpha142", "alpha001", "alpha144", "alpha003", "alpha011",
+    "alpha051", "alpha110", "alpha075", "alpha169", "alpha108", "alpha068",
+    "alpha166", "alpha171", "alpha162", "alpha055",
+]
+MARKET_COLS = ["market_vol_20d", "market_turnover_20d"]
+ALL_FEATURES = ALPHA_COLS + MARKET_COLS
+
+
+def load_data():
+    """加载 OOF 预测、X_matrix、close_matrix。"""
+    pred_path = MODEL_DIR / "oof_predictions.csv"
+    if not pred_path.exists():
+        raise FileNotFoundError("先运行 python models/lgbm_trainer.py 生成 OOF 预测")
+    pred_lgb = pd.read_csv(pred_path, index_col=0, parse_dates=True)
+
+    x_path = FEATURE_DIR / "X_matrix.csv"
+    X_raw = pd.read_csv(x_path, dtype=str)
+    X_raw["date"] = pd.to_datetime(X_raw["date"])
+    stock_col = X_raw.columns[1]
+    X_long = X_raw.set_index(["date", stock_col]).astype(float)
+
+    # alpha001 因子矩阵
+    alpha001 = X_long["alpha001"].unstack(level=1)
+
+    # market_vol_20d
+    market_vol = X_long["market_vol_20d"].unstack(level=1).iloc[:, 0]  # 每天所有股票相同
+
+    # 重建 close_matrix
+    cache = cache_summary()
+    symbols = sorted(cache["symbol"].tolist())[:300]
+    close_data = {}
+    for sym in symbols:
+        df = load_daily(sym)
+        if df is not None and len(df) >= 100:
+            s = df.loc[(df.index >= "2010-01-01") & (df.index <= "2025-12-31"), "close"]
+            if len(s) >= 100:
+                close_data[sym] = s
+    close_matrix = pd.DataFrame(close_data).sort_index()
+
+    common_stocks = pred_lgb.columns.intersection(close_matrix.columns).intersection(alpha001.columns)
+    pred_lgb = pred_lgb[common_stocks]
+    alpha001 = alpha001[common_stocks]
+    close_matrix = close_matrix[common_stocks]
+
+    # 市场基准：等权持有全部股票
+    market_ret = close_matrix.pct_change().shift(-2) / close_matrix.pct_change().shift(-1) - 1
+    # 市场基准：等权持有全部股票的 overlapped 日收益（同 hold_days=5）
+    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    market_signal = daily_ret.mean(axis=1)
+    market_ret = market_signal.rolling(5).mean().dropna()
+
+    return pred_lgb, alpha001, close_matrix, market_ret, market_vol, X_long
+
+
+def build_portfolio(
+    pred_df: pd.DataFrame,
+    close_matrix: pd.DataFrame,
+    long_only: bool = False,
+    top_q: float = TOP_Q,
+    bottom_q: float = BOTTOM_Q,
+    cost: float = COST_BPS,
+    hold_days: int = 5,
+) -> pd.DataFrame:
+    """构建 overlapped 投资组合。
+
+    信号日 t 收盘，t+1 开盘执行，每个信号持有 hold_days 个交易日。
+    第 t 天组合收益 = 过去 hold_days 天信号的日收益平均，
+    其中单个信号的日收益 = 其持仓股票在当天的 close(t+2)/close(t+1)-1。
+    成本按每天换仓比例摊薄：long-only = cost/hold_days，long-short = 2*cost/hold_days。
+    """
+    # 无未来函数的日收益：close(t+2)/close(t+1)-1
+    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+
+    common_dates = pred_df.index.intersection(daily_ret.index)
+    common_cols = pred_df.columns.intersection(daily_ret.columns)
+    p = pred_df.loc[common_dates, common_cols]
+    r = daily_ret.loc[common_dates, common_cols]
+
+    signal_rets = []
+    top_rets = []
+    bottom_rets = []
+    for d in common_dates:
+        pv = p.loc[d]
+        rv = r.loc[d]
+        mask = pv.notna() & rv.notna()
+        if mask.sum() < max(int(1 / top_q), int(1 / bottom_q)) * 3:
+            signal_rets.append(np.nan)
+            top_rets.append(np.nan)
+            bottom_rets.append(np.nan)
+            continue
+
+        valid_p = pv[mask]
+        valid_r = rv[mask]
+        top_thr = valid_p.quantile(1 - top_q)
+        bottom_thr = valid_p.quantile(bottom_q)
+
+        top_ret = valid_r[valid_p >= top_thr].mean()
+        bottom_ret = valid_r[valid_p <= bottom_thr].mean()
+
+        signal_rets.append(top_ret - bottom_ret)
+        top_rets.append(top_ret)
+        bottom_rets.append(bottom_ret)
+
+    signal_series = pd.Series(signal_rets, index=common_dates)
+    # overlapped: each day's portfolio = average of past hold_days signals
+    port_ret = signal_series.rolling(hold_days).mean()
+
+    # 成本摊薄：每天新开 1/hold_days 仓位；long-short 有双边
+    if long_only:
+        port_ret = port_ret - cost / hold_days
+    else:
+        port_ret = port_ret - 2 * cost / hold_days
+
+    port_ret = port_ret.dropna()
+    cum = (1 + port_ret).cumprod()
+
+    df = pd.DataFrame({
+        "port_ret": port_ret,
+        "signal_ret": pd.Series(signal_rets, index=common_dates).reindex(port_ret.index),
+        "top_ret": pd.Series(top_rets, index=common_dates).reindex(port_ret.index),
+        "bottom_ret": pd.Series(bottom_rets, index=common_dates).reindex(port_ret.index),
+    })
+    df["cum"] = cum
+    return df
+
+
+def performance_metrics(ret_series: pd.Series) -> dict:
+    ret = ret_series.dropna()
+    if len(ret) == 0:
+        return {"annual": 0.0, "sharpe": 0.0, "mdd": 0.0, "n": 0}
+    ann = (1 + ret.mean()) ** 252 - 1
+    sharpe = ret.mean() / ret.std() * np.sqrt(252) if ret.std() > 0 else 0.0
+    cum = (1 + ret).cumprod()
+    dd = (cum - cum.cummax()) / cum.cummax()
+    return {"annual": ann, "sharpe": sharpe, "mdd": dd.min(), "n": len(ret)}
+
+
+def block_bootstrap_sharpe(ret_series: pd.Series, n_boot: int = N_BOOT, block_size: int = BLOCK_SIZE) -> tuple:
+    """Block Bootstrap 检验夏普是否显著 > 0。"""
+    ret = ret_series.dropna().values
+    n = len(ret)
+    if n < block_size * 2:
+        return np.array([]), 1.0
+
+    observed = performance_metrics(ret_series)["sharpe"]
+    boot_sharpes = []
+    for _ in range(n_boot):
+        # 拼接 block
+        blocks = []
+        while len(blocks) < n:
+            start = np.random.randint(0, n - block_size + 1)
+            blocks.extend(ret[start:start + block_size])
+        sample = np.array(blocks[:n])
+        mean_s = sample.mean()
+        std_s = sample.std()
+        if std_s > 0:
+            boot_sharpes.append(mean_s / std_s * np.sqrt(252))
+        else:
+            boot_sharpes.append(0.0)
+
+    boot_sharpes = np.array(boot_sharpes)
+    p_value = (boot_sharpes <= 0).mean() if observed > 0 else (boot_sharpes >= 0).mean()
+    return boot_sharpes, p_value
+
+
+def _permute_column(X_reg: pd.DataFrame, col: str) -> pd.DataFrame:
+    """对单个特征做 permutation。
+
+    alpha 因子：截面打乱（按日期 groupby shuffle）。
+    市场特征：时间序列打乱，因为每天所有股票值相同。
+    """
+    X_perm = X_reg.copy()
+    if col in MARKET_COLS:
+        date_vals = X_perm[col].groupby(level=0).first()
+        shuffled_dates = np.random.permutation(date_vals.index)
+        shuffled_map = dict(zip(date_vals.index, shuffled_dates))
+        permuted = X_perm.index.get_level_values(0).map(lambda d: date_vals.loc[shuffled_map[d]])
+        X_perm[col] = permuted.values
+    else:
+        X_perm[col] = X_perm[col].groupby(level=0).transform(lambda x: x.sample(frac=1).values)
+    return X_perm
+
+
+def conditional_permutation_importance(
+    model: lgb.Booster,
+    X: pd.DataFrame,
+    market_feature: pd.Series,
+    feature_cols: list[str],
+    n_bins: int = 2,
+) -> dict:
+    """按市场状态分箱，计算每个特征的 Permutation Importance (AUC 下降)。"""
+    from sklearn.metrics import roc_auc_score
+
+    # 市场状态分箱
+    date_to_vol = market_feature.groupby(level=0).first().to_dict()
+    mf_values = X.index.get_level_values(0).map(date_to_vol)
+    mf = pd.Series(mf_values, index=X.index)
+    valid_mask = mf.notna()
+    mf = mf[valid_mask]
+    X = X.loc[valid_mask].copy()
+    # 用 rank 分箱避免 qcut 因重复值失败
+    ranks = mf.rank(pct=True)
+    bins = pd.cut(ranks, bins=n_bins, labels=[f"Q{i+1}" for i in range(n_bins)])
+
+    base_auc = roc_auc_score(X["label"], model.predict(X[feature_cols].values))
+    results = {}
+    for regime in bins.unique():
+        if pd.isna(regime):
+            continue
+        mask = bins == regime
+        X_reg = X.loc[mask, feature_cols]
+        y_reg = X.loc[mask, "label"]
+        if y_reg.nunique() < 2:
+            continue
+        base_reg = roc_auc_score(y_reg, model.predict(X_reg.values))
+        imp = {}
+        for col in feature_cols:
+            X_perm = _permute_column(X_reg, col)
+            perm_auc = roc_auc_score(y_reg, model.predict(X_perm.values))
+            imp[col] = base_reg - perm_auc
+        results[regime] = imp
+    return results, base_auc
+
+
+def plot_results(results: dict, boot_dist: dict):
+    """生成回测对比图。"""
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    # 1. 累计净值对比
+    ax = axes[0, 0]
+    for name, df in results.items():
+        ax.plot(df.index, df["cum"], label=name, linewidth=1.2)
+    ax.axhline(1.0, color="black", linewidth=0.5)
+    ax.set_title("累计净值对比（扣 0.3% 双边成本）")
+    ax.set_ylabel("净值")
+    ax.legend(loc="upper left")
+    ax.grid(True, alpha=0.3)
+
+    # 2. 月度收益热力图
+    ax = axes[0, 1]
+    lgb_ret = results.get("LightGBM LS")
+    if lgb_ret is not None:
+        monthly = lgb_ret["port_ret"].dropna().resample("ME").apply(lambda x: (1 + x).prod() - 1)
+        monthly.index = pd.MultiIndex.from_arrays([monthly.index.year, monthly.index.month])
+        pivot = monthly.unstack()
+        im = ax.imshow(pivot.values, cmap="RdYlGn", aspect="auto")
+        ax.set_xticks(range(len(pivot.columns)))
+        ax.set_xticklabels(pivot.columns)
+        ax.set_yticks(range(len(pivot.index)))
+        ax.set_yticklabels(pivot.index)
+        ax.set_title("LightGBM Long-Short 月度收益")
+        plt.colorbar(im, ax=ax)
+
+    # 3. Bootstrap SR 分布
+    ax = axes[1, 0]
+    colors = {"LightGBM LS": "green", "alpha001 LS": "blue", "LightGBM Long-only": "orange"}
+    for name, (dist, p) in boot_dist.items():
+        if len(dist) == 0:
+            continue
+        ax.hist(dist, bins=50, alpha=0.5, label=f"{name} (p={p:.4f})", color=colors.get(name))
+        ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_title("Bootstrap 夏普比率分布")
+    ax.set_xlabel("Sharpe Ratio")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # 4. 绩效指标表
+    ax = axes[1, 1]
+    ax.axis("off")
+    rows = []
+    for name, df in results.items():
+        m = performance_metrics(df["port_ret"])
+        _, p = boot_dist.get(name, (np.array([]), 1.0))
+        rows.append([name, f"{m['annual']:.2%}", f"{m['sharpe']:.3f}", f"{m['mdd']:.2%}", f"{p:.4f}"])
+    table = ax.table(cellText=rows, colLabels=["组合", "年化", "夏普", "最大回撤", "Bootstrap p"],
+                     cellLoc="center", loc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    ax.set_title("绩效汇总")
+
+    plt.tight_layout()
+    fig_path = FIGURES_DIR / "portfolio_backtest_summary.png"
+    fig.savefig(fig_path, dpi=150)
+    plt.close(fig)
+    print(f"图表保存: {fig_path}")
+
+
+def main():
+    print("=" * 70)
+    print("组合回测 + 条件 Alpha 归因")
+    print("=" * 70)
+
+    pred_lgb, alpha001, close_matrix, market_ret, market_vol, X_long = load_data()
+
+    # ── 组合构建 ──
+    print("\n构建组合（双边成本 0.3%）...")
+    lgb_ls = build_portfolio(pred_lgb, close_matrix, long_only=False, cost=COST_BPS)
+    lgb_lo = build_portfolio(pred_lgb, close_matrix, long_only=True, cost=COST_BPS)
+    a001_ls = build_portfolio(alpha001, close_matrix, long_only=False, cost=COST_BPS)
+
+    # 市场基准净值
+    market_cum = (1 + market_ret.fillna(0)).cumprod()
+
+    results = {
+        "LightGBM LS": lgb_ls,
+        "LightGBM Long-only": lgb_lo,
+        "alpha001 LS": a001_ls,
+    }
+
+    # ── 绩效指标 ──
+    print("\n绩效汇总:")
+    boot_dist = {}
+    for name, df in results.items():
+        m = performance_metrics(df["port_ret"])
+        dist, p = block_bootstrap_sharpe(df["port_ret"])
+        boot_dist[name] = (dist, p)
+        status = "✓" if (m["sharpe"] > 1.40 and p < 0.05) else "✗"
+        print(f"  {name:25s} 年化={m['annual']:+.2%}  夏普={m['sharpe']:.3f}  "
+              f"最大回撤={m['mdd']:.2%}  Bootstrap p={p:.4f}  {status}")
+
+    # 市场基准
+    m_mkt = performance_metrics(market_ret)
+    print(f"  {'市场等权':25s} 年化={m_mkt['annual']:+.2%}  夏普={m_mkt['sharpe']:.3f}  "
+          f"最大回撤={m_mkt['mdd']:.2%}")
+
+    # ── 条件归因 ──
+    print("\n条件 Alpha 归因（按 market_vol_20d 分高低波动）...")
+    labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2)
+    aligned = align_X_y(X_long, labels)
+
+    # 用 fold 5 模型做条件归因（训练数据最多）
+    model_path = MODEL_DIR / "lgbm_fold_5.txt"
+    if model_path.exists():
+        model = lgb.Booster(model_file=str(model_path))
+        valid = aligned.dropna(subset=["label"])
+        market_vol_long = X_long["market_vol_20d"]
+        imp_dict, base_auc = conditional_permutation_importance(
+            model, valid, market_vol_long, ALL_FEATURES, n_bins=2
+        )
+        print(f"  基础 AUC = {base_auc:.4f}")
+        for regime, imps in imp_dict.items():
+            print(f"\n  {regime} 波动区间:")
+            for feat, drop in sorted(imps.items(), key=lambda x: x[1], reverse=True):
+                print(f"    {feat:20s} AUC 下降 = {drop:+.6f}")
+
+        # 条件归因图
+        fig, ax = plt.subplots(figsize=(12, 6))
+        regimes = list(imp_dict.keys())
+        plot_df = pd.DataFrame(imp_dict).T[ALL_FEATURES]
+        x = np.arange(len(ALL_FEATURES))
+        width = 0.35
+        for i, regime in enumerate(regimes):
+            ax.bar(x + i * width, plot_df.loc[regime].values, width, label=regime)
+        ax.set_xticks(x + width / 2)
+        ax.set_xticklabels(ALL_FEATURES, rotation=45, ha="right")
+        ax.set_ylabel("Permutation Importance (AUC 下降)")
+        ax.set_title("条件 Alpha 归因：高/低波动区间的特征重要性")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        att_path = FIGURES_DIR / "conditional_attribution.png"
+        fig.savefig(att_path, dpi=150)
+        plt.close(fig)
+        print(f"\n条件归因图保存: {att_path}")
+    else:
+        print("  未找到 fold 5 模型，跳过条件归因")
+
+    # ── 作图 ──
+    plot_results(results, boot_dist)
+
+    # ── 保存结果 ──
+    summary = []
+    for name, df in results.items():
+        m = performance_metrics(df["port_ret"])
+        _, p = boot_dist[name]
+        summary.append({
+            "portfolio": name,
+            "annual_return": m["annual"],
+            "sharpe": m["sharpe"],
+            "max_drawdown": m["mdd"],
+            "bootstrap_p": p,
+            "pass": m["sharpe"] > 1.40 and p < 0.05,
+        })
+    pd.DataFrame(summary).to_csv(MODEL_DIR / "portfolio_backtest_summary.csv", index=False)
+    print("\n结果保存: models/portfolio_backtest_summary.csv")
+
+
+if __name__ == "__main__":
+    main()

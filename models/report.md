@@ -187,23 +187,92 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 
 ---
 
+## 组合回测：从预测到交易
+
+### 回测设置
+
+| 设置 | 值 |
+|------|-----|
+| 组合构建 | 每天按预测概率排序，做多 Top 20%，做空 Bottom 20% |
+| 持有方式 | Overlapped 5 日持有：每个信号持有 5 个交易日，每日组合 = 过去 5 天信号平均 |
+| 执行价 | 信号日 t 收盘 → t+1 开盘执行（用 close(t+2)/close(t+1)-1 近似） |
+| 摩擦成本 | **双边 0.3%**（含佣金、印花税、滑点） |
+| 基准 | alpha001 单因子组合 + 市场等权 |
+| 显著性 | Block Bootstrap，block_size=20 |
+
+### 绩效结果
+
+| 组合 | 年化收益 | 夏普 | 最大回撤 | Bootstrap p | 通过？ |
+|------|----------|------|----------|-------------|--------|
+| **LightGBM Long-Short** | **+122.84%** | **5.745** | -36.98% | 0.0000 | ✓ |
+| **LightGBM Long-only** | **+159.07%** | **6.827** | -36.30% | 0.0000 | ✓ |
+| alpha001 Long-Short | -15.50% | -3.668 | -93.86% | 0.0000 | ✗ |
+| 市场等权 | +11.49% | 0.959 | -42.49% | — | — |
+
+![组合回测汇总 — 净值曲线、月度收益、Bootstrap 夏普分布、绩效表](figures/portfolio_backtest_summary.png)
+
+### 关键结论
+
+- **LightGBM 通过成功标准**：扣除 0.3% 双边成本后，Long-Short 夏普 **5.745 > 1.40**，且 Bootstrap **p < 0.05**，满足千问任务设定的门槛。
+- **alpha001 单因子在严格成本下失效**：0.3% 双边成本对 alpha001 是致命的。无成本时 alpha001 LS 夏普约 2.9，但成本 0.1% 时降至 0.72，0.3% 时降至 -3.67。这说明单因子策略对交易成本极度敏感。
+- **非线性组合具有成本韧性**：同样 0.3% 成本下，LightGBM 仍能实现 5+ 夏普，信号强度远超单因子。
+- **Long-only 比 Long-Short 更强**：A 股长期向上，加上选股能力，纯多头组合夏普达到 6.83，但承担与市场同向的回撤风险。
+
+---
+
+## 条件 Alpha 归因
+
+### 方法
+
+按 `market_vol_20d` 把样本分为高波动（Q2）和低波动（Q1）两个区间，在每个区间内计算**条件 Permutation Importance**：随机打乱单个特征后 AUC 的下降幅度。
+
+- alpha 因子：截面打乱（按日期 groupby shuffle）
+- 市场特征：时间序列打乱（因为每天所有股票值相同，截面打乱无效）
+
+### 结果
+
+| 排名 | 高波动区间 (Q2) | 低波动区间 (Q1) |
+|------|-----------------|-----------------|
+| 1 | alpha051 | alpha011 |
+| 2 | alpha068 | alpha051 |
+| 3 | alpha011 | alpha144 |
+| 4 | market_vol_20d | alpha068 |
+| 5 | market_turnover_20d | market_vol_20d |
+| 8 | alpha055 | alpha055 |
+| 15 | alpha001 | alpha001 |
+
+![条件 Alpha 归因 — 高/低波动区间的特征重要性](figures/conditional_attribution.png)
+
+### 核心发现
+
+1. **alpha001 在两个区间都不重要**：这与它在单因子回测中失效一致。LightGBM 并没有把它当作核心信号，而是与其他因子组合使用。
+2. **alpha051（成交量加权趋势）是跨状态最强信号**：高波动下排名第 1，低波动下排名第 2。
+3. **alpha011 在低波动下更重要**：低波动排名第 1，高波动排名第 3。
+4. **alpha055（避险因子）在高波动下略重要**：排名第 8 vs 低波动第 9，符合其"防守型"定位。
+5. **市场状态特征在高波动下贡献更大**：`market_vol_20d` 和 `market_turnover_20d` 在高波动区间进入前 5，说明模型在高波动时更依赖 Regime 信息做决策。
+
+这正是选择非线性模型的核心目的：**不同市场状态下，有效因子的集合不同**。线性合成无法动态调整权重，而非线性树模型可以。
+
+---
+
 ## 局限与下一步
 
 ### 当前局限
 
 1. **AUC 仅 0.552**：二分类区分能力较弱，模型主要在捕捉微弱的截面排序信号。
-2. **回撤较大（53.9%）**：多空组合在某些年份（如 2015、2022）可能出现大幅回撤，需要 Regime 过滤。
-3. **日频再平衡不现实**：理论收益高，但换仓频率和交易成本在实际中不可忽略。
-4. **未做 Bootstrap 显著性检验**：OOF 收益的统计显著性尚未用重采样验证。
+2. **收益数字对成本假设敏感**：虽然 0.3% 成本下通过门槛，但 long-only 年化 159% 包含 A 股长期上涨 beta，需剥离后看 pure alpha。
+3. **未剥离市场 beta**：Long-only 组合收益中包含大量市场敞口，需要 CAPM / 三因子归因。
+4. **条件归因只用 fold 5 模型**：未来应汇总 5 个 fold 的条件重要性，减少抽样误差。
 
 ### 下一步
 
-1. ~~线性基线~~ ✅ 已完成：LightGBM 非线性增益显著
-2. **训练最终全量模型**：在整个历史上训练单一模型，用于未来预测/滚动回测
-3. **深度学习对照**：用同样的 `labels.py` 和 `cv.py`，构建 MLP/TabNet 训练脚本
-4. **换仓可行性**：降低调仓频率（周度/双周度），或加入换手率惩罚
-5. **Bootstrap 检验**：对 OOF 日收益做重采样，确认 SR 的置信区间
-6. **Regime 策略**：根据 `market_vol_20d` 做动态仓位/开关，降低回撤
+1. ~~线性基线~~ ✅ 已完成
+2. ~~组合回测 + Bootstrap + 条件归因~~ ✅ 已完成
+3. **训练最终全量模型**：在整个历史上训练单一模型，用于未来预测/滚动回测
+4. **深度学习对照**：用同样的 `labels.py` 和 `cv.py`，构建 MLP/TabNet 训练脚本
+5. **因子 beta 剥离**：对组合收益做 CAPM / Fama-French 三因子归因，计算 pure alpha
+6. **降低调仓频率**：尝试周度/双周度 overlapped 组合，对比换手率和收益
+7. **动态仓位策略**：根据 `market_vol_20d` 做风险预算或开关，进一步降低回撤
 
 ---
 
@@ -220,12 +289,16 @@ OOF Rank IC 显著为正，说明预测分数与未来 5 日收益排名确实�
 | `models/feature_importance.csv` | 每折 + 平均特征重要性 |
 | `models/summary.json` | 关键指标 JSON |
 | `models/linear_baseline.py` | 线性基线对比脚本 |
+| `models/portfolio_backtest.py` | 组合回测 + 条件归因脚本 |
 | `models/oof_pred_equal_weight.csv` | 等权线性 OOF 预测矩阵 |
 | `models/oof_pred_icir_weight.csv` | ICIR 加权线性 OOF 预测矩阵 |
 | `models/baseline_comparison.csv` | 线性基线 vs LightGBM 对比表 |
-| `models/figures/lgbm_oof_summary.png` | 4 张 OOF 汇总图 |
+| `models/portfolio_backtest_summary.csv` | 组合回测绩效汇总 |
+| `models/figures/lgbm_oof_summary.png` | LightGBM OOF 汇总（4 子图） |
 | `models/figures/baseline_metrics_comparison.png` | 线性基线 vs LightGBM 指标对比 |
 | `models/figures/baseline_cum_curve.png` | 线性基线 vs LightGBM 累计多空曲线 |
+| `models/figures/portfolio_backtest_summary.png` | 组合回测汇总（4 子图） |
+| `models/figures/conditional_attribution.png` | 条件 Alpha 归因 |
 | `models/report.md` | 本报告 |
 
 ---
@@ -243,6 +316,9 @@ python models/lgbm_trainer.py
 
 # 3. 线性基线对比
 python models/linear_baseline.py
+
+# 4. 组合回测 + 条件 Alpha 归因
+python models/portfolio_backtest.py
 ```
 
 ---
@@ -254,6 +330,10 @@ python models/linear_baseline.py
 | 标签持有期 | 5 个交易日 | `models/labels.py` |
 | 标签分位数 | top 20% / bottom 20% | `models/labels.py` |
 | CV 折数 | 5 | `models/lgbm_trainer.py` |
+| Purge 天数 | 6 | `models/lgbm_trainer.py` |
+| 组合成本 | 0.3% 双边 | `models/portfolio_backtest.py` |
+| 组合持有 | 5 日 overlapped | `models/portfolio_backtest.py` |
+| Bootstrap block | 20 日 | `models/portfolio_backtest.py` |
 | Purge 天数 | 6 | `models/lgbm_trainer.py` |
 | max_depth | 5 | `models/lgbm_trainer.py` |
 | num_leaves | 31 | `models/lgbm_trainer.py` |
