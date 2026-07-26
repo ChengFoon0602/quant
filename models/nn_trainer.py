@@ -257,14 +257,16 @@ def main():
     ax.plot(port_lgb["cum"].index, port_lgb["cum"].values, linewidth=1.2, color="#2ca02c",
             alpha=0.7, label=f"LightGBM (SR=8.75)")
     ax.axhline(1, color="black", linewidth=0.5)
-    ax.set_title("累计净值：MLP vs LightGBM")
+    ax.set_yscale("log")
+    ax.set_title("累计净值（对数坐标）")
+    ax.set_ylabel("净值 (log scale)")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
 
     ax = axes[1]
     methods = ["LightGBM", "MLP"]
     sharpes = [8.753, m_nn["sharpe"]]
-    dds = [-32.41, m_nn["mdd"]]
+    dds = [32.41, -m_nn["mdd"] * 100]
     colors_sr = ["#2ca02c", "#9467bd"]
     bars = ax.bar(methods, sharpes, color=colors_sr, edgecolor="white")
     ax.axhline(0, color="black", linewidth=0.5)
@@ -274,10 +276,11 @@ def main():
                 ha="center", va="bottom", fontsize=10)
 
     ax = axes[2]
-    bars2 = ax.bar(methods, [-d * 100 for d in dds], color=colors_sr, edgecolor="white")
+    bars2 = ax.bar(methods, dds, color=colors_sr, edgecolor="white")
     ax.set_title("最大回撤对比 (%)")
-    for bar, d in zip(bars2, dds):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{-d*100:.1f}%",
+    ax.set_ylabel("回撤 %")
+    for bar, d_val in zip(bars2, dds):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{d_val:.1f}%",
                 ha="center", va="bottom", fontsize=10)
 
     plt.tight_layout()
