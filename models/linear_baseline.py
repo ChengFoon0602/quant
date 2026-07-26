@@ -49,11 +49,8 @@ MODEL_DIR = Path(__file__).parent
 FWD_DAYS = 5
 N_SPLITS = 5
 PURGE_DAYS = 6
-ALPHA_COLS = [
-    "alpha116", "alpha142", "alpha001", "alpha144", "alpha003", "alpha011",
-    "alpha051", "alpha110", "alpha075", "alpha169", "alpha108", "alpha068",
-    "alpha166", "alpha171", "alpha162", "alpha055",
-]
+MARKET_COLS = ("market_vol_20d", "market_turnover_20d")
+# alpha 因子列从 X_matrix 动态推断（因子池由 select_features.py 决定，禁止硬编码）
 
 
 def load_features_and_close(feature_dir: Path = FEATURE_DIR):
@@ -159,6 +156,7 @@ def run_baseline(method: str = "equal") -> tuple[pd.DataFrame, dict]:
     print("=" * 70)
 
     X_long, close_matrix = load_features_and_close()
+    alpha_cols = [c for c in X_long.columns if c not in MARKET_COLS]
     universe = pd.Series(True, index=X_long.index).unstack(fill_value=False)
     labels = build_labels(close_matrix, fwd_days=FWD_DAYS, top_q=0.2, bottom_q=0.2,
                           universe=universe)
@@ -178,7 +176,7 @@ def run_baseline(method: str = "equal") -> tuple[pd.DataFrame, dict]:
         val_dates = val_df.index.get_level_values(0).unique()
 
         # 训练集：估计 z-score 参数 + ICIR 权重
-        train_z = cross_sectional_zscore(train_df, ALPHA_COLS)
+        train_z = cross_sectional_zscore(train_df, alpha_cols)
 
         if method == "icir":
             weights = compute_icir_weights(train_z, close_matrix, train_dates)
@@ -191,7 +189,7 @@ def run_baseline(method: str = "equal") -> tuple[pd.DataFrame, dict]:
         # 验证集：用训练集的截面均值/std 做 z-score
         # 这里我们直接用全局截面 z-score（每个 fold 内独立标准化），
         # 因为线性合成是符号/方向型信号，标准化参数不会泄露未来收益方向
-        val_z = cross_sectional_zscore(val_df, ALPHA_COLS)
+        val_z = cross_sectional_zscore(val_df, alpha_cols)
         val_score = _combine_scores(val_z, weights)
         val_score.name = "pred"
         oof_records.append(val_score)

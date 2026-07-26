@@ -28,9 +28,11 @@ Thumbs.db
 strategies/feature_selection/X_matrix*.csv
 strategies/feature_selection/y_matrix*.csv
 
-# 幸存者偏差修复前的旧模型输出备份 (*_pre_pit)
+# 幸存者偏差修复前的旧模型输出备份 (*_pre_pit)；PIT+冻结旧池备份 (*_pit16)
 models/*_pre_pit.csv
 models/*_pre_pit.json
+models/*_pit16.csv
+models/*_pit16.json
 
 # LightGBM 模型生成物 (通过 lgbm_trainer.py 重新生成)
 models/lgbm_fold_*.txt

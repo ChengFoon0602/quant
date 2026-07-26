@@ -6,6 +6,12 @@ purify_v2.py — 提纯管道 v2：panel 模式截面 RANK + 第三维过滤。
   2. 加入第三维: 截面有效比 > 0.5（>50% 交易日能成功分 5 组）
   3. 保存 purify_results.csv 供 downstream 使用
 
+2026-07 PIT 改造:
+  - 股票池 = PIT 沪深 300 历史成员（790 只，data/index_membership.py），
+    废除 sorted(cache)[:300] 切片（事故 universe，见 models/report.md 修正 II）
+  - IC / FM / CS_eff 全部在"当日指数成员"掩码内计算
+  - 因子分批计算（每批 48 个），避免 191 × 790 面板同时驻留内存 (~5GB)
+
 用法: python purify_v2.py
 """
 
@@ -18,17 +24,17 @@ import pandas as pd
 import warnings
 warnings.filterwarnings("ignore")
 
-from data.fetcher import load_daily, cache_summary
 from signals.alpha191 import list_factors
 from signals.alpha191.calculator import compute_factor_matrix
+from build_pit_matrix import load_pit_panel
 
 # ── 配置 ─────────────────────────────────────────────────
-N_STOCKS = 300
 DATE_START, DATE_END = "2010-01-01", "2025-12-31"
 IC_IR_THRESHOLD = 0.05
 FM_T_THRESHOLD = 2.0
 CS_EFFECTIVE_THRESHOLD = 0.5  # 截面有效比
 N_GROUPS = 5
+BATCH_SIZE = 48  # 因子分批计算，控制内存
 
 
 def section(title: str):
@@ -127,88 +133,74 @@ def compute_fm(factor_df: pd.DataFrame, fwd_ret: pd.DataFrame) -> dict:
 # ══════════════════════════════════════════════════════════
 
 def main():
-    section("数据加载")
-    cache = cache_summary()
-    all_symbols = sorted(cache["symbol"].tolist())
-    symbols = all_symbols[:N_STOCKS]
-    print(f"股票池: {len(symbols)} 只（全量 {len(all_symbols)} 只）")
+    section("数据加载（PIT 沪深 300）")
+    close_matrix, _, member_daily = load_pit_panel()
+    print(f"股票池: {close_matrix.shape[1]} 只历史成员，"
+          f"日均成员 {(member_daily & close_matrix.notna()).sum(axis=1).mean():.1f} 只")
 
-    # ── 构建 fwd_ret 矩阵 ──
-    close_data = {}
-    for sym in symbols:
-        df = load_daily(sym)
-        if df is not None and len(df) >= 100:
-            s = df.loc[(df.index >= DATE_START) & (df.index <= DATE_END), "close"]
-            if len(s) >= 100:
-                close_data[sym] = s
-    close_matrix = pd.DataFrame(close_data).sort_index()
+    # ── 构建 fwd_ret 矩阵（成员掩码在因子侧统一施加）──
     daily_ret = close_matrix.pct_change().fillna(0)
     fwd_ret = daily_ret.shift(-1)
     fwd_ret.iloc[-1] = 0
     print(f"收益矩阵: {close_matrix.shape[0]} 天 × {close_matrix.shape[1]} 只")
 
-    # ── 计算全部 191 因子 ──
-    section("因子计算（panel 模式，RANK = 截面排名）")
+    # ── 分批计算 191 因子并逐因子评估 ──
+    section("因子计算 + 提纯评估（panel 模式，成员掩码内 IC/FM/CS）")
     all_fids = list_factors()
-    print(f"因子总数: {len(all_fids)}")
-    print(f"预计耗时: ~10-15 分钟\n")
-
-    _, factor_tensor = compute_factor_matrix(
-        list(close_data.keys()),
-        all_fids,
-        start=DATE_START, end=DATE_END,
-        verbose=True,
-    )
-
-    # ── 逐因子评估 ──
-    section("提纯评估（IC_IR + FM + 截面有效比）")
+    print(f"因子总数: {len(all_fids)}，每批 {BATCH_SIZE} 个")
     print(f"提纯阈值: |IC_IR| > {IC_IR_THRESHOLD}, FM |t| > {FM_T_THRESHOLD}, "
           f"截面有效比 > {CS_EFFECTIVE_THRESHOLD}\n")
 
     results = []
-    for fid in all_fids:
-        factor_df = factor_tensor[fid]
-
-        # IC_IR
-        ic = compute_ic_ir(factor_df, fwd_ret)
-        # Fama-MacBeth
-        fm = compute_fm(factor_df, fwd_ret)
-        # 第三维: 截面有效比
-        cs_eff = cross_sectional_effective_ratio(factor_df, N_GROUPS)
-
-        pass_ic = abs(ic["IR"]) > IC_IR_THRESHOLD
-        pass_fm = abs(fm["t"]) > FM_T_THRESHOLD
-        pass_cs = cs_eff > CS_EFFECTIVE_THRESHOLD
-        passed = pass_ic and pass_fm and pass_cs
-
-        results.append({
-            "factor": fid,
-            "IC_IR": ic["IR"],
-            "IC_mean": ic["mean"],
-            "IC_t": ic["t"],
-            "IC_days": ic["n_days"],
-            "FM_λ_annual": fm["λ_annual"],
-            "FM_t": fm["t"],
-            "FM_days": fm["n_days"],
-            "cs_effective_ratio": cs_eff,
-            "IC_pass": pass_ic,
-            "FM_pass": pass_fm,
-            "CS_pass": pass_cs,
-            "pass": passed,
-        })
-
-        # 进度
-        idx = all_fids.index(fid) + 1
-        stat_parts = []
-        if pass_ic: stat_parts.append("IC")
-        if pass_fm: stat_parts.append("FM")
-        if pass_cs: stat_parts.append("CS")
-        status = f"✓({'|'.join(stat_parts)})" if passed else (
-            "✗" if not (pass_ic or pass_fm or pass_cs) else
-            f"({'|'.join(stat_parts)})"
+    for b0 in range(0, len(all_fids), BATCH_SIZE):
+        batch = all_fids[b0:b0 + BATCH_SIZE]
+        print(f"\n── 批次 {b0 // BATCH_SIZE + 1}: {batch[0]} ~ {batch[-1]} ──")
+        _, factor_tensor = compute_factor_matrix(
+            list(close_matrix.columns), batch,
+            start=DATE_START, end=DATE_END, verbose=False,
         )
-        print(f"  [{idx:3d}/191] {fid}: IC_IR={ic['IR']:+.4f}, "
-              f"FM_t={fm['t']:+.2f}, CS_eff={cs_eff:.3f} → {status}")
+
+        for fid in batch:
+            # PIT: 因子值仅在当日成员内参与评估
+            factor_df = factor_tensor.pop(fid).where(member_daily)
+
+            ic = compute_ic_ir(factor_df, fwd_ret)
+            fm = compute_fm(factor_df, fwd_ret)
+            cs_eff = cross_sectional_effective_ratio(factor_df, N_GROUPS)
+
+            pass_ic = abs(ic["IR"]) > IC_IR_THRESHOLD
+            pass_fm = abs(fm["t"]) > FM_T_THRESHOLD
+            pass_cs = cs_eff > CS_EFFECTIVE_THRESHOLD
+            passed = pass_ic and pass_fm and pass_cs
+
+            results.append({
+                "factor": fid,
+                "IC_IR": ic["IR"],
+                "IC_mean": ic["mean"],
+                "IC_t": ic["t"],
+                "IC_days": ic["n_days"],
+                "FM_λ_annual": fm["λ_annual"],
+                "FM_t": fm["t"],
+                "FM_days": fm["n_days"],
+                "cs_effective_ratio": cs_eff,
+                "IC_pass": pass_ic,
+                "FM_pass": pass_fm,
+                "CS_pass": pass_cs,
+                "pass": passed,
+            })
+
+            # 进度
+            idx = all_fids.index(fid) + 1
+            stat_parts = []
+            if pass_ic: stat_parts.append("IC")
+            if pass_fm: stat_parts.append("FM")
+            if pass_cs: stat_parts.append("CS")
+            status = f"✓({'|'.join(stat_parts)})" if passed else (
+                "✗" if not (pass_ic or pass_fm or pass_cs) else
+                f"({'|'.join(stat_parts)})"
+            )
+            print(f"  [{idx:3d}/191] {fid}: IC_IR={ic['IR']:+.4f}, "
+                  f"FM_t={fm['t']:+.2f}, CS_eff={cs_eff:.3f} → {status}")
 
     # ── 保存结果 ──
     section("结果保存")

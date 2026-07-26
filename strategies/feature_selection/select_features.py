@@ -5,7 +5,7 @@ select_features.py — 冗余剔除 + 最终特征矩阵构建。
   1. 剔除纸老虎 (CS_eff == 0)
   2. 计算 Rank IC 相关性矩阵，剔除冗余 (corr > 0.8)
   3. 硬性保留 alpha001 (基准) + alpha055 (避险)
-  4. 构建最终特征矩阵 X + 目标 y (fwd_return)
+  4. 构建最终特征矩阵 X + 目标 y (fwd_return)（PIT universe，复用 build_pit_matrix）
   5. 加入市场状态特征 (波动率, 换手率)
 
 用法: python select_features.py
@@ -24,11 +24,9 @@ warnings.filterwarnings("ignore")
 matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-from data.fetcher import load_daily, cache_summary
 from signals.alpha191.calculator import compute_factor_matrix
 
 # ── 配置 ─────────────────────────────────────────────────
-N_STOCKS = 300
 DATE_START, DATE_END = "2010-01-01", "2025-12-31"
 RANK_IC_CORR_THRESHOLD = 0.8
 IC_IR_THRESHOLD = 0.05
@@ -101,22 +99,6 @@ def remove_redundant(corr_matrix, ic_ir_map, threshold=0.8, must_keep=None):
     return selected, redundant_pairs
 
 
-def build_market_features(close_matrix, volume_matrix):
-    """构建市场状态特征: 20 日波动率 + 20 日换手率截面均值。"""
-    daily_ret = close_matrix.pct_change()
-    # 全市场 20 日波动率
-    market_vol_20d = daily_ret.rolling(20).std().mean(axis=1)
-    # 全市场 20 日相对换手率 (相对过去 252 日均值)
-    vol_ma = volume_matrix.rolling(252).mean()
-    rel_turnover = volume_matrix / vol_ma.replace(0, np.nan)
-    market_turnover_20d = rel_turnover.rolling(20).mean().mean(axis=1)
-    mkt = pd.DataFrame({
-        "market_vol_20d": market_vol_20d,
-        "market_turnover_20d": market_turnover_20d,
-    })
-    return mkt
-
-
 # ══════════════════════════════════════════════════════════
 #  主流程
 # ══════════════════════════════════════════════════════════
@@ -148,34 +130,24 @@ def main():
     print(f"v2 管道通过 + must_keep: {len(valid)} 个")
     candidate_fids = valid["factor"].tolist()
 
-    # ── 加载数据 ──
+    # ── 加载数据（PIT 沪深 300，见 build_pit_matrix.py）──
     print("\n加载数据...")
-    cache = cache_summary()
-    symbols = sorted(cache["symbol"].tolist())[:N_STOCKS]
-    close_data = {}
-    volume_data = {}
-    for sym in symbols:
-        df = load_daily(sym)
-        if df is not None and len(df) >= 100:
-            s = df.loc[(df.index >= DATE_START) & (df.index <= DATE_END)]
-            if len(s) >= 100:
-                close_data[sym] = s["close"]
-                if "volume" in s.columns:
-                    volume_data[sym] = s["volume"]
-    close_matrix = pd.DataFrame(close_data).sort_index()
-    volume_matrix = pd.DataFrame(volume_data).sort_index() if volume_data else close_matrix * 0
-    volume_matrix = volume_matrix.reindex_like(close_matrix)
+    from build_pit_matrix import load_pit_panel, build_and_save
+    close_matrix, volume_matrix, member_daily = load_pit_panel()
     fwd_ret = close_matrix.pct_change().shift(-1).fillna(0)
-    print(f"数据矩阵: {close_matrix.shape}")
+    print(f"数据矩阵: {close_matrix.shape}，"
+          f"日均成员 {(member_daily & close_matrix.notna()).sum(axis=1).mean():.1f} 只")
 
-    # ── 计算候选因子的因子矩阵 ──
+    # ── 计算候选因子的因子矩阵（成员掩码内评估）──
     print(f"\n计算 {len(candidate_fids)} 个候选因子...")
     _, factor_tensor = compute_factor_matrix(
-        list(close_data.keys()),
+        list(close_matrix.columns),
         candidate_fids,
         start=DATE_START, end=DATE_END,
         verbose=True,
     )
+    for fid in list(factor_tensor):
+        factor_tensor[fid] = factor_tensor[fid].where(member_daily)
 
     # ── Rank IC 相关性矩阵 + 冗余剔除 ──
     print(f"\n计算 Rank IC 相关性矩阵...")
@@ -229,35 +201,9 @@ def main():
             print(f"  {i+1:2d}. {fid:10s}  IC_IR={r['IC_IR']:+.4f}  "
                   f"FM_t={r['FM_t']:+.2f}  CS_eff={r['cs_effective_ratio']:.3f}")
 
-    # ── 构建特征矩阵 X ──
+    # ── 构建特征矩阵 X（PIT，复用 build_pit_matrix，已算好的掩码因子直接传入）──
     print(f"\n构建特征矩阵 X...")
-    # 因子面板 → 长格式 (每行 = 一天 × 一只股票)
-    frames_x = []
-    for fid in final_pool:
-        mat = factor_tensor[fid]
-        stacked = mat.stack().rename(fid)
-        frames_x.append(stacked)
-    X_factor = pd.concat(frames_x, axis=1)
-
-    # 市场状态特征 (每行一天, 重复到每只股票)
-    mkt_feat = build_market_features(close_matrix, volume_matrix)
-    # 展开到 stock × date 长格式
-    mkt_long = mkt_feat.loc[X_factor.index.get_level_values(0)]
-    mkt_long.index = X_factor.index
-
-    X = pd.concat([X_factor, mkt_long], axis=1)
-
-    # 目标 y = 次日收益率
-    y_long = fwd_ret.stack().rename("fwd_return")
-    y = y_long.loc[X.index]
-
-    # 保存（明确命名 index level，避免后续读取时 symbol 被解析为整数）
-    X.index.names = ["date", "symbol"]
-    y.index.names = ["date", "symbol"]
-    X.to_csv(Path(__file__).parent / "X_matrix.csv")
-    y.to_csv(Path(__file__).parent / "y_matrix.csv")
-    print(f"  X: {X.shape} (样本 × 特征)")
-    print(f"  y: {y.shape}")
+    X = build_and_save(final_pool, factor_tensor={f: factor_tensor[f] for f in final_pool})
     print(f"  特征列: {list(X.columns)}")
 
     # ── IC_IR 柱状图 ──
@@ -287,7 +233,7 @@ def main():
     ax.axvline(x=0.5, color="red", linestyle="--", linewidth=2, label=f"阈值 = {CS_EFFECTIVE_THRESHOLD}")
     ax.set_xlabel("截面有效比")
     ax.set_ylabel("因子数量")
-    ax.set_title(f"截面有效比分布 (191 个因子, N={N_STOCKS} 股票)")
+    ax.set_title(f"截面有效比分布 (191 个因子, PIT 成员掩码内)")
     ax.legend()
     plt.tight_layout()
     cs_fig_path = FIGURES_DIR / "03_cs_effective_ratio_dist.png"
@@ -296,7 +242,7 @@ def main():
     print(f"  截面有效比图: {cs_fig_path}")
 
     print(f"\n  === 特征筛选完成 ===")
-    return X, y, final_pool
+    return X, final_pool
 
 
 if __name__ == "__main__":

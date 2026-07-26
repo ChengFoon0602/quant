@@ -50,13 +50,9 @@ FWD_DAYS = 5
 N_BOOT = 10000
 BLOCK_SIZE = 20
 
-ALPHA_COLS = [
-    "alpha116", "alpha142", "alpha001", "alpha144", "alpha003", "alpha011",
-    "alpha051", "alpha110", "alpha075", "alpha169", "alpha108", "alpha068",
-    "alpha166", "alpha171", "alpha162", "alpha055",
-]
 MARKET_COLS = ["market_vol_20d", "market_turnover_20d"]
-ALL_FEATURES = ALPHA_COLS + MARKET_COLS
+# alpha 因子列从 X_matrix 动态推断（因子池由 select_features.py 决定，禁止硬编码）
+ALL_FEATURES: list[str] = []  # 在 main() 中由 X_long 列填充
 
 
 def load_data():
@@ -436,11 +432,14 @@ def main():
     # 用 fold 5 模型做条件归因（训练数据最多）
     model_path = MODEL_DIR / "lgbm_fold_5.txt"
     if model_path.exists():
+        # 特征列表从 X_matrix 动态推断（与 lgbm_trainer 的列序一致：alpha 在前，市场特征在后）
+        all_features = [c for c in X_long.columns if c not in MARKET_COLS] + MARKET_COLS
+        ALL_FEATURES[:] = all_features  # 供 _permute_column 等模块级引用
         model = lgb.Booster(model_file=str(model_path))
         valid = aligned.dropna(subset=["label"])
         market_vol_long = X_long["market_vol_20d"]
         imp_dict, base_auc = conditional_permutation_importance(
-            model, valid, market_vol_long, ALL_FEATURES, n_bins=2
+            model, valid, market_vol_long, all_features, n_bins=2
         )
         print(f"  基础 AUC = {base_auc:.4f}")
         for regime, imps in imp_dict.items():
@@ -451,13 +450,13 @@ def main():
         # 条件归因图
         fig, ax = plt.subplots(figsize=(12, 6))
         regimes = list(imp_dict.keys())
-        plot_df = pd.DataFrame(imp_dict).T[ALL_FEATURES]
-        x = np.arange(len(ALL_FEATURES))
+        plot_df = pd.DataFrame(imp_dict).T[all_features]
+        x = np.arange(len(all_features))
         width = 0.35
         for i, regime in enumerate(regimes):
             ax.bar(x + i * width, plot_df.loc[regime].values, width, label=regime)
         ax.set_xticks(x + width / 2)
-        ax.set_xticklabels(ALL_FEATURES, rotation=45, ha="right")
+        ax.set_xticklabels(all_features, rotation=45, ha="right")
         ax.set_ylabel("Permutation Importance (AUC 下降)")
         ax.set_title("条件 Alpha 归因：高/低波动区间的特征重要性")
         ax.legend()
