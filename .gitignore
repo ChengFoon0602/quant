@@ -62,6 +62,10 @@ models/execution_optimization_dyn.csv
 # 方法论修正诊断生成物 (通过 methodology_correction.py 重新生成)
 models/methodology_correction.csv
 
+# 因子发现复核生成物 (通过 bootstrap_block_sensitivity.py / bootstrap_full_sweep.py 重新生成)
+strategies/factor_discovery/bootstrap_block_sensitivity.csv
+strategies/factor_discovery/bootstrap_full_sweep.csv
+
 # 临时诊断脚本 (scratch)
 _diag_*.py
 
