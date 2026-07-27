@@ -27,6 +27,9 @@ Thumbs.db
 # *_pre_pit.csv = 2026-07 幸存者偏差修复前的旧矩阵备份
 strategies/feature_selection/X_matrix*.csv
 strategies/feature_selection/y_matrix*.csv
+strategies/zz500_pit_trial/X_matrix*.csv
+strategies/zz500_pit_trial/y_matrix*.csv
+strategies/zz500_pit_trial/oof_predictions.csv
 
 # 幸存者偏差修复前的旧模型输出备份 (*_pre_pit)；PIT+冻结旧池备份 (*_pit16)
 models/*_pre_pit.csv

@@ -43,14 +43,14 @@ ALPHA_FIDS_MOD2 = [
 ]
 
 
-def load_pit_panel() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_pit_panel(index: str = "hs300") -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """加载 PIT 面板基础数据: (close_matrix, volume_matrix, member_daily)。
 
-    close/volume 覆盖 790 只历史成员全量历史；member_daily 为日频成员掩码。
+    close/volume 覆盖该指数全部历史成员的全量历史；member_daily 为日频成员掩码。
     """
     from data.fetcher import load_daily
 
-    membership = load_membership()
+    membership = load_membership(index)
     symbols = sorted(membership.columns)
 
     close_data, volume_data = {}, {}
