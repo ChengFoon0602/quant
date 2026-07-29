@@ -1,0 +1,12 @@
+year,pool,n_pass
+2015,"['alpha003', 'alpha011', 'alpha051', 'alpha001', 'alpha109', 'alpha087', 'alpha116', 'alpha108', 'alpha142', 'alpha166', 'alpha160', 'alpha162', 'alpha170', 'alpha147', 'alpha096', 'alpha055']",64
+2016,"['alpha001', 'alpha011', 'alpha003', 'alpha116', 'alpha051', 'alpha142', 'alpha109', 'alpha087', 'alpha147', 'alpha108', 'alpha169', 'alpha162', 'alpha144', 'alpha160', 'alpha166', 'alpha055']",61
+2017,"['alpha001', 'alpha011', 'alpha003', 'alpha116', 'alpha051', 'alpha109', 'alpha087', 'alpha142', 'alpha068', 'alpha008', 'alpha147', 'alpha108', 'alpha169', 'alpha162', 'alpha170', 'alpha055']",65
+2018,"['alpha001', 'alpha116', 'alpha011', 'alpha003', 'alpha051', 'alpha142', 'alpha087', 'alpha109', 'alpha147', 'alpha108', 'alpha169', 'alpha144', 'alpha160', 'alpha162', 'alpha170', 'alpha055']",66
+2019,"['alpha001', 'alpha116', 'alpha011', 'alpha003', 'alpha051', 'alpha142', 'alpha110', 'alpha087', 'alpha109', 'alpha023', 'alpha108', 'alpha147', 'alpha169', 'alpha144', 'alpha162', 'alpha055']",66
+2020,"['alpha116', 'alpha001', 'alpha011', 'alpha003', 'alpha051', 'alpha142', 'alpha110', 'alpha087', 'alpha023', 'alpha109', 'alpha108', 'alpha169', 'alpha144', 'alpha147', 'alpha162', 'alpha055']",68
+2021,"['alpha116', 'alpha001', 'alpha051', 'alpha003', 'alpha142', 'alpha011', 'alpha110', 'alpha087', 'alpha108', 'alpha023', 'alpha144', 'alpha169', 'alpha162', 'alpha109', 'alpha160', 'alpha055']",69
+2022,"['alpha116', 'alpha001', 'alpha051', 'alpha003', 'alpha142', 'alpha011', 'alpha110', 'alpha087', 'alpha108', 'alpha023', 'alpha144', 'alpha169', 'alpha109', 'alpha162', 'alpha176', 'alpha055']",70
+2023,"['alpha116', 'alpha001', 'alpha142', 'alpha003', 'alpha051', 'alpha011', 'alpha087', 'alpha110', 'alpha144', 'alpha023', 'alpha108', 'alpha169', 'alpha162', 'alpha176', 'alpha160', 'alpha055']",70
+2024,"['alpha116', 'alpha001', 'alpha142', 'alpha003', 'alpha051', 'alpha144', 'alpha087', 'alpha011', 'alpha108', 'alpha023', 'alpha110', 'alpha169', 'alpha162', 'alpha176', 'alpha021', 'alpha055']",70
+2025,"['alpha116', 'alpha001', 'alpha142', 'alpha087', 'alpha144', 'alpha003', 'alpha108', 'alpha023', 'alpha110', 'alpha051', 'alpha011', 'alpha162', 'alpha169', 'alpha021', 'alpha176', 'alpha055']",70

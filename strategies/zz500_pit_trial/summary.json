@@ -36,6 +36,8 @@
   "market_annual":0.0936553611,
   "wf_sharpe":1.4380951978,
   "wf_annual":0.2399943398,
+  "wf_pit_select_sharpe":0.2946595138,
+  "wf_pit_select_annual":0.0368598057,
   "csi300_ref":{
     "ic_mean":0.0512,
     "ic_ir":0.269,

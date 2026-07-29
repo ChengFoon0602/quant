@@ -50,6 +50,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 from signals.alpha191 import list_factors
 from signals.alpha191.calculator import compute_factor_matrix
+from signals.alternative.factors import compute_residual_momentum
 from build_pit_matrix import load_pit_panel, build_market_features_pit
 from purify_v2 import cross_sectional_effective_ratio
 from select_features import compute_rank_ic_corr_matrix, remove_redundant
@@ -196,6 +197,29 @@ def purify_and_select(close_matrix, volume_matrix, member_daily):
             if passed or fid in MUST_KEEP:
                 keep_tensor[fid] = fdf
 
+    # ── 残差动量（非 Alpha 191 因子，IC_IR=0.20）──
+    print("\n  计算残差动量 (win=252, period=20)...")
+    try:
+        fdf_rm = compute_residual_momentum(close_matrix, window=252, momentum_period=20).where(member_daily)
+        ic_rm = compute_ic_ir_vec(fdf_rm, fwd_ret)
+        fm_rm = compute_fm_vec(fdf_rm, fwd_ret)
+        p_ic_rm = abs(ic_rm["IR"]) > IC_IR_THRESHOLD
+        p_fm_rm = abs(fm_rm["t"]) > FM_T_THRESHOLD
+        cs_rm = cross_sectional_effective_ratio(fdf_rm, N_GROUPS) if p_ic_rm else np.nan
+        p_cs_rm = bool(cs_rm > CS_EFFECTIVE_THRESHOLD) if not np.isnan(cs_rm) else False
+        passed_rm = p_ic_rm and p_fm_rm and p_cs_rm
+        results.append({
+            "factor": "residual_momentum", "IC_IR": ic_rm["IR"], "IC_mean": ic_rm["mean"], "IC_t": ic_rm["t"],
+            "FM_λ_annual": fm_rm["λ_annual"], "FM_t": fm_rm["t"],
+            "cs_effective_ratio": cs_rm, "IC_pass": p_ic_rm, "FM_pass": p_fm_rm,
+            "CS_pass": p_cs_rm, "pass": passed_rm,
+        })
+        keep_tensor["residual_momentum"] = fdf_rm
+        print(f"    residual_momentum: IC={ic_rm['mean']:+.4f} IC_IR={ic_rm['IR']:+.3f} "
+              f"FM_t={fm_rm['t']:+.2f} CS={cs_rm:.3f} → {'✓ 通过' if passed_rm else '✗'}")
+    except Exception as e:
+        print(f"    residual_momentum: 计算失败 — {e}")
+
     purify_df = pd.DataFrame(results).sort_values("IC_IR", key=abs, ascending=False)
     purify_df.to_csv(THIS_DIR / "purify_results.csv", index=False)
     n_pass = int(purify_df["pass"].sum())
@@ -219,7 +243,7 @@ def purify_and_select(close_matrix, volume_matrix, member_daily):
         print(f"    {i:2d}. {f:10s} IC_IR={r['IC_IR']:+.4f} FM_t={r['FM_t']:+.2f} CS={r['cs_effective_ratio']:.3f}")
 
     factor_tensor_final = {f: keep_tensor[f] for f in final_pool}
-    return final_pool, purify_df, corr_mat, factor_tensor_final
+    return final_pool, purify_df, corr_mat, factor_tensor_final, keep_tensor
 
 def build_matrix(close_matrix, volume_matrix, member_daily, final_pool, factor_tensor):
     """构建本目录 PIT 长格式 X/y 矩阵（不覆盖 CSI 300 的 feature_selection/）。"""
@@ -380,6 +404,186 @@ def walk_forward(X_long, close_matrix):
     print(f"  合并 WF: 年化={m_wf['annual']:+.2%} SR={m_wf['sharpe']:+.3f} 回撤={m_wf['mdd']:+.2%}")
     return yearly_df, all_wf, m_wf
 
+
+def walk_forward_pit_select(close_matrix, volume_matrix, member_daily, keep_tensor):
+    """WF with annual factor re-selection — 消除 selection bias。
+
+    与 walk_forward() 的区别：每年用截至当年的数据重做三维提纯+冗余剔除，
+    而非用全样本预选的固定因子池。这是路线② 落地的先决条件。
+    """
+    section("Walk-Forward PIT Select：年度重选因子池 (2015-2025, expanding, hold=10)")
+
+    daily_ret = close_matrix.pct_change().fillna(0)
+    fwd_ret_full = daily_ret.shift(-1)
+    fwd_ret_full.iloc[-1] = 0
+
+    # 预建 market features（全时段，后续切片）
+    mkt = build_market_features_pit(close_matrix, volume_matrix, member_daily)
+
+    yearly, ports, pools_log, preds = [], [], [], []
+    for year in WF_TEST_YEARS:
+        tr_end = f"{year - 1}-12-31"
+        te_start, te_end = f"{year}-01-01", f"{year}-12-31"
+
+        # ── 切片训练窗口 ──
+        close_tr = close_matrix[:tr_end]
+        fwd_tr = fwd_ret_full[:tr_end]
+        member_tr = member_daily[:tr_end]
+        mkt_tr = mkt[:tr_end]
+
+        # ── 1. 重算 IC_IR + FM（只用训练窗口数据）──
+        results = []
+        for fid, fdf_full in keep_tensor.items():
+            fdf = fdf_full.loc[:tr_end].where(member_tr)
+            ic = compute_ic_ir_vec(fdf, fwd_tr)
+            fm = compute_fm_vec(fdf, fwd_tr)
+            p_ic = abs(ic["IR"]) > IC_IR_THRESHOLD
+            p_fm = abs(fm["t"]) > FM_T_THRESHOLD
+            cs = cross_sectional_effective_ratio(fdf, N_GROUPS) if (p_ic and p_fm) else np.nan
+            p_cs = bool(cs > CS_EFFECTIVE_THRESHOLD) if not np.isnan(cs) else False
+            results.append({
+                "factor": fid, "IC_IR": ic["IR"], "IC_mean": ic["mean"], "IC_t": ic["t"],
+                "FM_t": fm["t"], "pass": p_ic and p_fm and p_cs,
+            })
+
+        purify_yr = pd.DataFrame(results)
+        passing = purify_yr[purify_yr["pass"]]
+        print(f"\n  {year}: {len(passing)}/{len(keep_tensor)} 通过三维 "
+              f"(top3 IC_IR: {', '.join(f'{r['factor']}={r['IC_IR']:+.3f}' for _, r in passing.head(3).iterrows())})")
+
+        if len(passing) < 3:
+            print(f"    ⚠ 通过不足，跳过")
+            continue
+
+        # ── 2. 冗余剔除（切片窗口上的 Rank IC 相关性）──
+        keep_tr = {}
+        for _, r in passing.iterrows():
+            fid = r["factor"]
+            keep_tr[fid] = keep_tensor[fid].loc[:tr_end].where(member_tr)
+        for mk in MUST_KEEP:
+            if mk in keep_tensor and mk not in keep_tr:
+                keep_tr[mk] = keep_tensor[mk].loc[:tr_end].where(member_tr)
+
+        ic_map_yr = {r["factor"]: r["IC_IR"] for _, r in passing.iterrows()}
+        corr_yr = compute_rank_ic_corr_matrix(keep_tr, fwd_tr)
+        sel, _ = remove_redundant(corr_yr, ic_map_yr, RANK_IC_CORR_THRESHOLD, MUST_KEEP)
+        sel_sorted = sorted(sel, key=lambda f: abs(ic_map_yr.get(f, 0)), reverse=True)
+        pool_yr = sel_sorted[:MAX_POOL_SIZE]
+        for mk in MUST_KEEP:
+            if mk in keep_tensor and mk not in pool_yr:
+                pool_yr.append(mk)
+        pools_log.append({"year": year, "pool": pool_yr, "n_pass": len(passing)})
+
+        # ── 3. 构建训练集 X ──
+        syms_tr = close_tr.columns.tolist()
+        frames_tr = [keep_tensor[f].loc[:tr_end].stack().rename(f) for f in pool_yr]
+        X_factor_tr = pd.concat(frames_tr, axis=1)
+        mkt_align = mkt_tr.loc[X_factor_tr.index.get_level_values(0)]
+        mkt_align.index = X_factor_tr.index
+        X_tr = pd.concat([X_factor_tr, mkt_align], axis=1)
+        # 成员过滤
+        member_long = member_tr.stack()
+        keep_mask = member_long.reindex(X_tr.index).fillna(False).astype(bool)
+        X_tr = X_tr[keep_mask.values]
+        y_tr = fwd_tr.stack().rename("fwd_return").reindex(X_tr.index)
+        X_tr.index.names = y_tr.index.names = ["date", "symbol"]
+
+        # ── 4. 标签 + 训练 ──
+        universe_tr = pd.Series(True, index=X_tr.index).unstack(fill_value=False)
+        labels_tr = build_labels(close_tr, fwd_days=FWD_DAYS, top_q=TOP_Q, bottom_q=BOTTOM_Q,
+                                 universe=universe_tr)
+        valid_tr = align_X_y(X_tr, labels_tr).sort_index(level=0).dropna(subset=["label"])
+        d_tr = valid_tr.index.get_level_values(0)
+        tr_data = valid_tr[(d_tr >= "2010-01-01") & (d_tr <= tr_end)]
+        if len(tr_data) < 1000:
+            print(f"    训练样本不足 ({len(tr_data)}), 跳过")
+            continue
+
+        feat_cols = [c for c in X_tr.columns if c not in MARKET_COLS]
+        all_feat = feat_cols + [c for c in X_tr.columns if c in MARKET_COLS]
+        w = build_sample_weights(tr_data["label"], "balanced")
+        dtr = lgb.Dataset(tr_data[all_feat].values, label=tr_data["label"].values, weight=w)
+        model = lgb.train({**LGBM_PARAMS, "verbose": -1}, dtr, num_boost_round=WF_NUM_BOOST)
+
+        # ── 5. 预测测试年 ──
+        te_dates = close_matrix.loc[te_start:te_end].index
+        if len(te_dates) <= 20:
+            continue
+
+        # 测试集 X（用全时段因子值切片）
+        frames_te = [keep_tensor[f].loc[te_start:te_end].stack().rename(f) for f in pool_yr]
+        X_factor_te = pd.concat(frames_te, axis=1)
+        mkt_te = mkt.loc[te_start:te_end]
+        mkt_te_aligned = mkt_te.loc[X_factor_te.index.get_level_values(0)]
+        mkt_te_aligned.index = X_factor_te.index
+        X_te = pd.concat([X_factor_te, mkt_te_aligned], axis=1)
+        # 测试期成员过滤
+        member_te = member_daily.loc[te_start:te_end]
+        member_te_long = member_te.stack()
+        keep_te = member_te_long.reindex(X_te.index).fillna(False).astype(bool)
+        X_te = X_te[keep_te.values]
+        X_te.index.names = ["date", "symbol"]
+        if len(X_te) < 100:
+            continue
+
+        pred = pd.Series(
+            model.predict(X_te[all_feat].values), index=X_te.index
+        ).unstack(level=1)
+
+        td = pred.index.intersection(close_matrix.index)
+        ts = pred.columns.intersection(close_matrix.columns)
+        pred = pred.loc[td, ts]
+
+        pf = build_portfolio(pred, close_matrix.loc[td, ts], long_only=False, cost=COST_BPS, hold_days=10)
+        m = performance_metrics(pf["port_ret"])
+        yearly.append({"year": year, "annual": m["annual"], "sharpe": m["sharpe"],
+                       "mdd": m["mdd"], "n": m["n"], "pool_size": len(pool_yr)})
+        ports.append(pf["port_ret"])
+        preds.append(pred)
+        print(f"    → 年化={m['annual']:>+8.2%} SR={m['sharpe']:>+7.3f} "
+              f"回撤={m['mdd']:>+8.2%} 池={pool_yr}")
+
+    yearly_df = pd.DataFrame(yearly)
+    yearly_df.to_csv(THIS_DIR / "walk_forward_yearly_pit_select.csv", index=False)
+    # 保存逐年因子池
+    pd.DataFrame(pools_log).to_csv(THIS_DIR / "walk_forward_pools.csv", index=False)
+
+    all_wf = pd.concat(ports).sort_index() if ports else pd.Series(dtype=float)
+    m_wf = performance_metrics(all_wf)
+    print(f"\n  合并 WF (PIT Select): 年化={m_wf['annual']:+.2%} "
+          f"SR={m_wf['sharpe']:+.3f} 回撤={m_wf['mdd']:+.2%}")
+    print(f"  对照: 固定池 WF SR=1.438（含 selection bias）")
+
+    # ── 拼接全部年份预测 → 真正的 OOF 指标（消除 selection bias）──
+    if preds:
+        pred_full = pd.concat(preds).sort_index()
+        pred_full.to_csv(THIS_DIR / "oof_predictions_pit_select.csv")
+        print(f"\n  真实 OOF 预测: {pred_full.shape[0]} 天 × {pred_full.shape[1]} 股")
+
+        # Rank IC（与 train_cv 的 evaluate_oof 对齐）
+        daily_ret = close_matrix.pct_change().fillna(0)
+        fwd_5d = daily_ret.rolling(5).sum().shift(-5)
+        cd = pred_full.index.intersection(fwd_5d.index)
+        cs = pred_full.columns.intersection(fwd_5d.columns)
+        p = pred_full.loc[cd, cs]; r = fwd_5d.loc[cd, cs]
+        joint = p.notna() & r.notna()
+        pr = p.where(joint).rank(axis=1); rr = r.where(joint).rank(axis=1)
+        valid = joint.sum(axis=1) >= 10
+        pr, rr = pr[valid], rr[valid]
+        pm = pr.mean(axis=1); rm = rr.mean(axis=1)
+        pc = pr.sub(pm, axis=0); rc = rr.sub(rm, axis=0)
+        cov = (pc * rc).sum(axis=1)
+        denom = np.sqrt((pc ** 2).sum(axis=1) * (rc ** 2).sum(axis=1))
+        ic_series = (cov / denom.replace(0, np.nan)).dropna()
+        oof_ic = ic_series.mean()
+        oof_ic_ir = oof_ic / ic_series.std(ddof=0) if ic_series.std() > 0 else 0
+        oof_ic_t = oof_ic_ir * np.sqrt(len(ic_series))
+        print(f"  真实 OOF Rank IC = {oof_ic:+.4f}  IC_IR = {oof_ic_ir:+.3f}  t = {oof_ic_t:+.1f}")
+        print(f"  对照: 固定池 OOF IC = +0.095 (含 selection bias)")
+
+    return yearly_df, all_wf, m_wf
+
+
 def plot_screening(purify_df, corr_mat, final_pool, metrics, curves, fi):
     """图 1：因子提纯 + OOF 模型表现（2×3 子图）。"""
     fig, axes = plt.subplots(2, 3, figsize=(20, 11))
@@ -514,7 +718,7 @@ def main():
         print(f"  股票池 {close_matrix.shape[1]} 只历史成员 | "
               f"日均成员 {(member_daily & close_matrix.notna()).sum(axis=1).mean():.1f} 只 | "
               f"{close_matrix.shape[0]} 交易日")
-        final_pool, purify_df, corr_mat, factor_tensor = purify_and_select(
+        final_pool, purify_df, corr_mat, factor_tensor, keep_tensor = purify_and_select(
             close_matrix, volume_matrix, member_daily)
         X_long = build_matrix(close_matrix, volume_matrix, member_daily, final_pool, factor_tensor)
 
@@ -525,8 +729,23 @@ def main():
     bt = backtest(pred_matrix, close_matrix, X_long)
     bt["ic_mean"] = metrics["ic_mean"]; bt["ic_ir"] = metrics["ic_ir"]
 
-    # ── Walk-Forward ──
+    # ── Walk-Forward（固定池，含 selection bias）──
     wf_yearly, wf_all, m_wf = walk_forward(X_long, close_matrix)
+
+    # ── 保存 keep_tensor（供后续分阶段使用）──
+    if not x_exists or rebuild:
+        import pickle, gzip
+        kt_path = THIS_DIR / "keep_tensor.pkl.gz"
+        print(f"  保存 keep_tensor ({len(keep_tensor)} 因子) → {kt_path} ...")
+        with gzip.open(kt_path, "wb") as f:
+            pickle.dump(keep_tensor, f)
+
+    # ── Walk-Forward PIT Select（年度重选池，消除 selection bias）──
+    wf_pit_yearly, wf_pit_all, m_wf_pit = None, None, {"sharpe": float("nan"), "annual": float("nan"), "mdd": float("nan")}
+    if not x_exists or rebuild:
+        # 只在完整重跑时可用（需要 keep_tensor）
+        wf_pit_yearly, wf_pit_all, m_wf_pit = walk_forward_pit_select(
+            close_matrix, volume_matrix, member_daily, keep_tensor)
 
     # ── 图表 ──
     section("图表")
@@ -546,6 +765,7 @@ def main():
         "lo5_boot_p": float(bt["p_lo"]),
         "market_sharpe": float(bt["m_mkt"]["sharpe"]), "market_annual": float(bt["m_mkt"]["annual"]),
         "wf_sharpe": float(m_wf["sharpe"]), "wf_annual": float(m_wf["annual"]),
+        "wf_pit_select_sharpe": float(m_wf_pit["sharpe"]), "wf_pit_select_annual": float(m_wf_pit["annual"]),
         "csi300_ref": CSI300_REF,
     }
     pd.Series(summary).to_json(THIS_DIR / "summary.json", force_ascii=False, indent=2)
@@ -555,6 +775,9 @@ def main():
     print(f"  zz500 LO 夏普(h5) = {bt['m_lo5']['sharpe']:+.3f} (CSI300 {CSI300_REF['lo_sharpe']:+.3f})")
     print(f"  zz500 LS 夏普(h5) = {bt['m_ls5']['sharpe']:+.3f} (CSI300 {CSI300_REF['ls_sharpe_net']:+.3f})")
     print(f"  zz500 WF 夏普     = {m_wf['sharpe']:+.3f} (CSI300 {CSI300_REF['wf_sharpe']:+.3f})")
+    if not np.isnan(m_wf_pit["sharpe"]):
+        delta = m_wf["sharpe"] - m_wf_pit["sharpe"]
+        print(f"  zz500 WF PIT Sel  = {m_wf_pit['sharpe']:+.3f} (消除 selection bias, Δ={delta:+.3f})")
     print(f"  汇总: summary.json")
 
 

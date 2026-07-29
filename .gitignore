@@ -1,5 +1,6 @@
 # 数据缓存
 data/cache/
+data/cache_fundamental/
 
 # Python
 __pycache__/
@@ -30,6 +31,9 @@ strategies/feature_selection/y_matrix*.csv
 strategies/zz500_pit_trial/X_matrix*.csv
 strategies/zz500_pit_trial/y_matrix*.csv
 strategies/zz500_pit_trial/oof_predictions.csv
+
+# keep_tensor 安全点（提纯后自动保存，可重建）
+strategies/zz500_pit_trial/keep_tensor.pkl.gz
 
 # 幸存者偏差修复前的旧模型输出备份 (*_pre_pit)；PIT+冻结旧池备份 (*_pit16)
 models/*_pre_pit.csv
