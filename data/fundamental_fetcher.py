@@ -207,6 +207,129 @@ def fetch_fundamental_field(
     return df_wide
 
 
+# ── 按接口批处理（多字段一次查询）──────────────────────────────
+
+# 6 大财报接口 × 字段分组。baostock 单次查询返回整行（同接口所有字段），
+# 逐字段重查浪费 ~6 倍，故按接口一次 pass 提取全部所需字段。
+INTERFACE_GROUPS: dict[str, tuple[object, list[str]]] = {
+    "profit":    (bs.query_profit_data,     ["roeAvg", "npMargin", "gpMargin", "epsTTM"]),
+    "growth":    (bs.query_growth_data,     ["YOYNI", "YOYPNI", "YOYEPSBasic", "YOYAsset"]),
+    "cash_flow": (bs.query_cash_flow_data,  ["CFOToNP", "CFOToOR", "CFOToGr", "CAToAsset", "ebitToInterest"]),
+    "operation": (bs.query_operation_data,  ["NRTurnRatio", "INVTurnRatio", "CATurnRatio", "AssetTurnRatio"]),
+    "balance":   (bs.query_balance_data,    ["liabilityToAsset", "currentRatio", "cashRatio"]),
+    "dupont":    (bs.query_dupont_data,     ["dupontROE"]),
+}
+
+
+def fetch_interface(
+    symbols: list[str],
+    api_func,
+    fields: list[str],
+    years: range | None = None,
+    verbose: bool = True,
+) -> dict[str, pd.DataFrame]:
+    """按接口批处理拉取多个财务字段（每 (code, y, q) 只查询一次）。
+
+    Parameters
+        symbols: 6 位股票代码列表
+        api_func: baostock 查询函数，如 bs.query_profit_data
+        fields: 该接口下要提取的字段名列表
+        years: 年份范围，默认 2007–2025
+        verbose: 打印进度
+
+    Returns
+        dict: {field: date×symbol PIT 宽表}，并逐个写缓存到 cache_fundamental/{field}.csv
+    """
+    bs.login()
+    if years is None:
+        years = range(2007, 2026)
+
+    tasks = []
+    for sym in symbols:
+        bs_code = _to_baostock_code(sym)
+        for y in years:
+            for q in (1, 2, 3, 4):
+                tasks.append((bs_code, sym, y, q))
+
+    records: dict[str, list[dict]] = {f: [] for f in fields}
+    n_done = 0
+    n_err = 0
+    n_total = len(tasks)
+    t0 = time.time()
+
+    for bs_code, sym, y, q in tasks:
+        try:
+            rs = api_func(code=bs_code, year=y, quarter=q)
+            fields_list = list(rs.fields)
+            fields_lower = [f.lower() for f in fields_list]
+            pub_idx = fields_lower.index("pubdate") if "pubdate" in fields_lower else None
+
+            if rs.error_code == "0":
+                while rs.next():
+                    row = rs.get_row_data()
+                    # PIT 有效日 = pubDate + 1 天；缺失回退法定截止日 + 1 天
+                    if pub_idx is not None:
+                        pub_str = row[pub_idx]
+                        if pub_str and pub_str != "":
+                            pit_date = pd.Timestamp(pub_str) + pd.Timedelta(days=1)
+                        else:
+                            pit_date = _statutory_deadline(y, q) + pd.Timedelta(days=1)
+                    else:
+                        pit_date = _statutory_deadline(y, q) + pd.Timedelta(days=1)
+
+                    for f in fields:
+                        f_lower = f.lower()
+                        if f_lower not in fields_lower:
+                            continue
+                        val_str = row[fields_lower.index(f_lower)]
+                        if val_str and val_str != "":
+                            try:
+                                records[f].append({"date": pit_date, "symbol": sym, "value": float(val_str)})
+                            except ValueError:
+                                pass
+        except Exception:
+            n_err += 1
+        n_done += 1
+
+        if n_done % 200 == 0:
+            time.sleep(0.02)
+        if verbose and n_done % 200 == 0:
+            elapsed = time.time() - t0
+            rate = n_done / elapsed if elapsed > 0 else 1
+            eta = (n_total - n_done) / rate if rate > 0 else 0
+            n_hit = sum(len(v) for v in records.values())
+            print(f"  [{n_done}/{n_total}] {n_done/n_total*100:.1f}%  命中 {n_hit} 条 | "
+                  f"{elapsed:.0f}s | ETA {eta/60:.0f}min ({rate:.0f} q/s, {n_err} err)", flush=True)
+
+        # checkpoint：每字段每 10000 条增量写盘（防中断）
+        for f in fields:
+            if len(records[f]) > 0 and len(records[f]) % 10000 == 0:
+                _save_checkpoint(records[f], f)
+
+    bs.logout()
+
+    result: dict[str, pd.DataFrame] = {}
+    for f in fields:
+        if not records[f]:
+            print(f"  [WARN] {f}: 未命中任何数据")
+            result[f] = pd.DataFrame()
+            continue
+        df_wide = _records_to_wide(records[f], f)
+        df_wide.to_csv(_cache_path(f))
+        if verbose:
+            print(f"  {f}: {len(df_wide)} 个 PIT 日期 × {len(df_wide.columns)} 只股票 "
+                  f"({df_wide.index[0].date()} → {df_wide.index[-1].date()})")
+        result[f] = df_wide
+    return result
+
+
+def get_zz500_pit_symbols() -> list[str]:
+    """PIT 中证500 全部历史成员（含退市/调出）的 6 位代码列表。"""
+    from data.index_membership import load_membership
+    mem = load_membership("zz500")
+    return sorted(mem.columns.astype(str))
+
+
 # ── 缓存接口 ──────────────────────────────────────────────────
 
 def _cache_path(field: str) -> Path:
@@ -283,27 +406,32 @@ def fetch_earnings_quality(symbols: list[str], force_refresh: bool = False) -> p
 if __name__ == "__main__":
     import sys
 
-    # 默认用已缓存的日线文件获取 symbol 列表
-    daily_cache = Path(__file__).parent / "cache"
-    symbols = sorted([p.stem for p in daily_cache.glob("*.csv") if len(p.stem) == 6])
-    if len(symbols) < 100:
-        print("日线缓存不足，从 baostock 实时获取成分股列表...")
-        bs.login()
-        for query_fn, label in [(bs.query_zz500_stocks, "ZZ500"), (bs.query_hs300_stocks, "HS300")]:
-            try:
-                rs = query_fn()
-                while (rs.error_code == "0") and rs.next():
-                    row = rs.get_row_data()
-                    symbols.append(row[1].replace("sh.", "").replace("sz.", ""))
-            except Exception:
-                pass
-        bs.logout()
-        symbols = sorted(set(symbols))
-
-    print(f"股票池: {len(symbols)} 只")
-
     force = "--force" in sys.argv
 
+    # 支持 --interface {name}：只拉一个接口组（后台分段跑）
+    interface_arg = None
+    for i, a in enumerate(sys.argv):
+        if a == "--interface" and i + 1 < len(sys.argv):
+            interface_arg = sys.argv[i + 1]
+
+    symbols = get_zz500_pit_symbols()
+    print(f"PIT zz500 股票池: {len(symbols)} 只")
+
+    if interface_arg is not None:
+        if interface_arg not in INTERFACE_GROUPS:
+            print(f"[ERROR] 未知接口 {interface_arg!r}. 可选: {list(INTERFACE_GROUPS)}")
+            sys.exit(1)
+        api_func, fields = INTERFACE_GROUPS[interface_arg]
+        print(f"\n=== {interface_arg} 接口: {fields} ===")
+        result = fetch_interface(symbols, api_func, fields)
+        for f, df in result.items():
+            if len(df) > 0:
+                print(f"  {f}: {len(df)} 日期 × {len(df.columns)} 股票, "
+                      f"非空 {df.notna().sum().sum():,}")
+        print(f"\n完成 {interface_arg}。")
+        sys.exit(0)
+
+    # 默认路径：两个便捷入口（兼容旧用法）
     print("\n=== Asset Growth (YOYAsset) ===")
     df_ag = fetch_asset_growth(symbols, force_refresh=force)
     if len(df_ag) > 0:
