@@ -1,6 +1,7 @@
 # 数据缓存
 data/cache/
 data/cache_fundamental/
+data/cache_index/
 
 # Python
 __pycache__/

@@ -111,6 +111,7 @@ def build_portfolio(
     cost: float = COST_BPS,
     hold_days: int = 5,
     position_scale: pd.Series | None = None,
+    return_flows: bool = False,
 ) -> pd.DataFrame:
     """构建 overlapped 投资组合 —— 基于权重追踪的真实每日 P&L。
 
@@ -176,6 +177,10 @@ def build_portfolio(
 
     df = pd.DataFrame({"port_ret": port_ret, "turnover": turnover.reindex(port_ret.index)})
     df["cum"] = cum
+    if return_flows:
+        # 逐日逐股交易流 |ΔW|（缩放后真实持仓变化），供容量检验模拟冲击成本
+        flows = (W_held - W_held.shift(1)).abs().reindex(port_ret.index)
+        return df, flows
     return df
 
 
