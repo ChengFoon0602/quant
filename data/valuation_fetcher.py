@@ -76,18 +76,28 @@ def fetch_valuation(
     start: str = START_DATE,
     end: str = END_DATE,
     verbose: bool = True,
+    qps: float = 3.0,
 ) -> dict[str, pd.DataFrame]:
     """逐只拉取估值字段，返回 {field: date×symbol 宽表}，并写缓存。
 
     单只一次 query_history_k_data_plus 拿全历史 → 每只 1 次查询。
+    qps: 每查询最小间隔（避免触发 baostock 风控，见 fundamental_fetcher）。
     """
     bs.login()
     records: dict[str, list[dict]] = {f: [] for f in VALUATION_FIELDS}
     n_total = len(symbols)
     n_err = 0
     t0 = time.time()
+    last_q_time = time.time()
 
     for i, sym in enumerate(symbols):
+        # 限流
+        elapsed = time.time() - last_q_time
+        interval = 1.0 / qps
+        if elapsed < interval:
+            time.sleep(interval - elapsed)
+        last_q_time = time.time()
+
         code = _to_baostock_code(sym)
         try:
             rs = bs.query_history_k_data_plus(
@@ -160,12 +170,18 @@ if __name__ == "__main__":
         if a == "--subset" and i + 1 < len(sys.argv):
             subset = int(sys.argv[i + 1])
 
+    # --qps：限流（默认 3 q/s，单进程安全）
+    qps = 3.0
+    for i, a in enumerate(sys.argv):
+        if a == "--qps" and i + 1 < len(sys.argv):
+            qps = float(sys.argv[i + 1])
+
     if subset is not None:
         symbols = symbols[:subset]
         print(f"[subset={subset}] 样本股票池: {len(symbols)} 只")
 
-    print(f"估值拉取股票池: {len(symbols)} 只 PIT zz500 成员")
-    result = fetch_valuation(symbols)
+    print(f"估值拉取股票池: {len(symbols)} 只 PIT zz500 成员 | qps={qps}")
+    result = fetch_valuation(symbols, qps=qps)
     for f, df in result.items():
         if len(df) > 0:
             print(f"  {f}: 非空 {df.notna().sum().sum():,} | "

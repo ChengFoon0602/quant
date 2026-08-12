@@ -227,6 +227,7 @@ def fetch_interface(
     fields: list[str],
     years: range | None = None,
     verbose: bool = True,
+    qps: float = 3.0,
 ) -> dict[str, pd.DataFrame]:
     """按接口批处理拉取多个财务字段（每 (code, y, q) 只查询一次）。
 
@@ -236,6 +237,9 @@ def fetch_interface(
         fields: 该接口下要提取的字段名列表
         years: 年份范围，默认 2007–2025
         verbose: 打印进度
+        qps: 每查询的最小间隔对应的速率（queries/sec）。baostock 对账号有风控，
+            曾因 6 进程并行 36 q/s 触发「黑名单」封禁；重试必须低速串行
+            （默认 3 q/s，单个进程，安全）。
 
     Returns
         dict: {field: date×symbol PIT 宽表}，并逐个写缓存到 cache_fundamental/{field}.csv
@@ -256,8 +260,16 @@ def fetch_interface(
     n_err = 0
     n_total = len(tasks)
     t0 = time.time()
+    last_q_time = time.time()
 
     for bs_code, sym, y, q in tasks:
+        # 限流：保持每查询最小间隔（避免触发 baostock 风控）
+        elapsed = time.time() - last_q_time
+        interval = 1.0 / qps
+        if elapsed < interval:
+            time.sleep(interval - elapsed)
+        last_q_time = time.time()
+
         try:
             rs = api_func(code=bs_code, year=y, quarter=q)
             fields_list = list(rs.fields)
@@ -291,15 +303,13 @@ def fetch_interface(
             n_err += 1
         n_done += 1
 
-        if n_done % 200 == 0:
-            time.sleep(0.02)
-        if verbose and n_done % 200 == 0:
+        if verbose and n_done % 500 == 0:
             elapsed = time.time() - t0
             rate = n_done / elapsed if elapsed > 0 else 1
             eta = (n_total - n_done) / rate if rate > 0 else 0
             n_hit = sum(len(v) for v in records.values())
             print(f"  [{n_done}/{n_total}] {n_done/n_total*100:.1f}%  命中 {n_hit} 条 | "
-                  f"{elapsed:.0f}s | ETA {eta/60:.0f}min ({rate:.0f} q/s, {n_err} err)", flush=True)
+                  f"{elapsed:.0f}s | ETA {eta/3600:.1f}h ({rate:.1f} q/s, {n_err} err)", flush=True)
 
         # checkpoint：每字段每 10000 条增量写盘（防中断）
         for f in fields:
@@ -408,14 +418,20 @@ if __name__ == "__main__":
 
     force = "--force" in sys.argv
 
-    # 支持 --interface {name}：只拉一个接口组（后台分段跑）
+    # 限流参数（默认 3 q/s，单进程安全；曾因 6 并行 36 q/s 触发 baostock 黑名单）
+    qps = 3.0
+    for i, a in enumerate(sys.argv):
+        if a == "--qps" and i + 1 < len(sys.argv):
+            qps = float(sys.argv[i + 1])
+
+    # 支持 --interface {name}：只拉一个接口组（分段跑，禁并行）
     interface_arg = None
     for i, a in enumerate(sys.argv):
         if a == "--interface" and i + 1 < len(sys.argv):
             interface_arg = sys.argv[i + 1]
 
     symbols = get_zz500_pit_symbols()
-    print(f"PIT zz500 股票池: {len(symbols)} 只")
+    print(f"PIT zz500 股票池: {len(symbols)} 只 | qps={qps}")
 
     if interface_arg is not None:
         if interface_arg not in INTERFACE_GROUPS:
@@ -423,7 +439,7 @@ if __name__ == "__main__":
             sys.exit(1)
         api_func, fields = INTERFACE_GROUPS[interface_arg]
         print(f"\n=== {interface_arg} 接口: {fields} ===")
-        result = fetch_interface(symbols, api_func, fields)
+        result = fetch_interface(symbols, api_func, fields, qps=qps)
         for f, df in result.items():
             if len(df) > 0:
                 print(f"  {f}: {len(df)} 日期 × {len(df.columns)} 股票, "
