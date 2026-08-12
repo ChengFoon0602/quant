@@ -36,6 +36,9 @@ strategies/zz500_pit_trial/oof_predictions.csv
 # keep_tensor 安全点（提纯后自动保存，可重建）
 strategies/zz500_pit_trial/keep_tensor.pkl.gz
 
+# WF PIT-Select 逐年预测（可重建，27MB 大文件）
+strategies/zz500_pit_trial/oof_predictions_pit_select.csv
+
 # 幸存者偏差修复前的旧模型输出备份 (*_pre_pit)；PIT+冻结旧池备份 (*_pit16)
 models/*_pre_pit.csv
 models/*_pre_pit.json
