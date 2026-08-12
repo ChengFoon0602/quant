@@ -106,13 +106,16 @@ def build_portfolio(
     pred_df: pd.DataFrame,
     close_matrix: pd.DataFrame,
     long_only: bool = False,
+    short_only: bool = False,
     top_q: float = TOP_Q,
     bottom_q: float = BOTTOM_Q,
     cost: float = COST_BPS,
     hold_days: int = 5,
     position_scale: pd.Series | None = None,
+    gate: pd.Series | None = None,
     return_flows: bool = False,
-) -> pd.DataFrame:
+    return_weights: bool = False,
+) -> pd.DataFrame | tuple:
     """构建 overlapped 投资组合 —— 基于权重追踪的真实每日 P&L。
 
     ⚠️ 方法论修正（2026-07）：旧实现对"信号收益序列"做 rolling(hold_days).mean()，
@@ -128,7 +131,12 @@ def build_portfolio(
          所有 tranche 在同一天经历同一市场波动 → 无虚假平滑。
       4. 成本 = 每日换手 sum|ΔW| × 单边成本(cost/2)。cost 为双边(round-trip)成本。
 
-    position_scale: 可选的逐日仓位系数（如高波动降半仓），index 对齐交易日。
+    position_scale: 可选的逐日仓位系数（post-multiply，乘在 W_held 上；如高波动降半仓）。
+    gate: 可选的逐日 regime 闸门（pre-multiply，乘在 W_target 上、rolling 之前）。
+          gate-off（0）日不开新 tranche，闸门开启后持仓用 hold 天爬坡——语义是
+          "闸门关闭期间策略空仓，不纸上建仓"（P2 熊市做空端主口径）。
+    short_only: 只写空头分支（bottom 分位等权做空），与 long_only 互斥。
+    return_weights: 为 True 时返回 (df, W_held)，W_held 为实际持仓权重（融券成本/暴露统计）。
     """
     # 无未来函数的日收益：close(t+2)/close(t+1)-1
     daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
@@ -137,6 +145,9 @@ def build_portfolio(
     common_cols = pred_df.columns.intersection(daily_ret.columns)
     p = pred_df.loc[common_dates, common_cols]
     r = daily_ret.loc[common_dates, common_cols]
+
+    if long_only and short_only:
+        raise ValueError("long_only 与 short_only 互斥，不能同时为 True")
 
     # ── 每天生成目标权重向量 w[t] ──
     W_target = pd.DataFrame(0.0, index=common_dates, columns=common_cols)
@@ -150,10 +161,15 @@ def build_portfolio(
         bottom_thr = valid_p.quantile(bottom_q)
         top = valid_p[valid_p >= top_thr].index
         bottom = valid_p[valid_p <= bottom_thr].index
-        if len(top):
+        if not short_only and len(top):
             W_target.loc[d, top] = 1.0 / len(top)
         if not long_only and len(bottom):
             W_target.loc[d, bottom] = -1.0 / len(bottom)
+
+    # ── regime 闸门（pre-multiply）：gate-off 日不开新 tranche ──
+    if gate is not None:
+        g = gate.reindex(W_target.index).ffill().fillna(0.0)
+        W_target = W_target.mul(g, axis=0)
 
     # ── 实际持仓 = 过去 hold_days 天目标权重的平均（重叠 tranche）──
     W_held = W_target.rolling(hold_days, min_periods=1).mean()
@@ -177,6 +193,8 @@ def build_portfolio(
 
     df = pd.DataFrame({"port_ret": port_ret, "turnover": turnover.reindex(port_ret.index)})
     df["cum"] = cum
+    if return_weights:
+        return df, W_held.reindex(port_ret.index)
     if return_flows:
         # 逐日逐股交易流 |ΔW|（缩放后真实持仓变化），供容量检验模拟冲击成本
         flows = (W_held - W_held.shift(1)).abs().reindex(port_ret.index)
