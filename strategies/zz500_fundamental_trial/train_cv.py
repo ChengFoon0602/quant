@@ -38,6 +38,10 @@ from models.portfolio_backtest import build_portfolio, performance_metrics
 def load_monthly_matrix():
     X = pd.read_csv(THIS_DIR / "X_monthly.csv", index_col=[0, 1], parse_dates=[0])
     y = pd.read_csv(THIS_DIR / "y_monthly.csv", index_col=[0, 1], parse_dates=[0]).iloc[:, 0]
+    # CSV 往返丢失前导零（000005→5→'5'）：zfill(6) 恢复为 6 位代码，否则
+    # universe 宽表列名（'5'）与 close 列名（'000005'）对不上 → build_labels 全 NaN。
+    X.index = X.index.set_levels(X.index.levels[1].astype(str).str.zfill(6), level=1)
+    y.index = y.index.set_levels(y.index.levels[1].astype(str).str.zfill(6), level=1)
     return X, y
 
 
@@ -48,9 +52,9 @@ def evaluate_oof_monthly(pred_matrix, close_matrix, min_n=30):
     p = pred_matrix.loc[med]
     r = fwd.loc[med]
 
-    # Rank IC 序列
+    # Rank IC 序列（只统计 pred 有效覆盖的月末，ic 索引 = 实际有值日期）
     joint = p.notna() & r.notna()
-    ics = []
+    ics, ic_dates = [], []
     for d in p.index:
         row_p = p.loc[d]; row_r = r.loc[d]
         m = joint.loc[d]
@@ -58,7 +62,8 @@ def evaluate_oof_monthly(pred_matrix, close_matrix, min_n=30):
             continue
         rp = row_p[m].rank(); rr = row_r[m].rank()
         ics.append(rp.corr(rr))
-    ic = pd.Series(ics, index=med)
+        ic_dates.append(d)
+    ic = pd.Series(ics, index=pd.DatetimeIndex(ic_dates))
     m_ic, s_ic = ic.mean(), ic.std(ddof=0)
     ic_ir = m_ic / s_ic if s_ic > 0 else 0.0
     ic_t = ic_ir * np.sqrt(len(ic)) if s_ic > 0 else 0.0
@@ -162,8 +167,9 @@ def main():
     print("[2] 加载 PIT 面板（close 用于标签/评估）...")
     from build_pit_matrix import load_pit_panel
     close, _, _ = load_pit_panel(INDEX)
-    td = close.index.intersection(X.index.get_level_values(0))
-    close = close.loc[td]
+    # 注意：close 必须保持完整日频。月末限定由 universe（X_monthly 股票/日期）
+    # 在 build_labels 内部完成；把 close 切片到月末会破坏 fwd_return 的
+    # 交易日连续性（close(t+22)/close(t+1) 需要连续 21 个交易日）。
 
     pred_matrix, metrics, fi, auc_m, auc_s = train_cv(X, close)
     print("\n完成。")

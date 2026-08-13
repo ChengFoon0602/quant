@@ -137,22 +137,29 @@ def compute_ic_ir_daily(factor_df: pd.DataFrame, fwd: pd.DataFrame) -> dict:
 
 # ── 提纯主流程 ────────────────────────────────────────────────
 
-def purify_and_select(close_matrix, volume_matrix, member_daily):
-    """25 因子月末四维提纯 → Rank IC 冗余剔除 → 返回
-    (final_pool, purify_df, corr_mat, factor_tensor, keep_tensor)。"""
-    section("阶段 1/2：25 因子月末截面评估（fwd=21 交易日）")
+def purify_and_select(close_matrix, volume_matrix, member_daily, fields: list[str] | None = None):
+    """月末四维提纯 → Rank IC 冗余剔除 → 返回
+    (final_pool, purify_df, corr_mat, factor_tensor, keep_tensor)。
+
+    fields: 要评估的因子名列表；None = 全部 25 个。C 方案（数据部分到位）
+    可用 profit 子集冒烟，缺缓存因子不拉取不报错。
+    """
+    if fields is None:
+        fields = list(FACTOR_SPECS.keys())
+    section(f"阶段 1/2：{len(fields)} 因子月末截面评估（fwd=21 交易日）")
     fwd = fwd_return(close_matrix)
     med = month_end_dates(close_matrix.index)
-    print(f"月末截面数: {len(med)} | 因子数: {len(FACTOR_SPECS)}")
+    print(f"月末截面数: {len(med)} | 因子数: {len(fields)}")
     print(f"阈值: |IC_IR|>{IC_IR_THRESHOLD} |IC_t|>{IC_T_THRESHOLD} "
           f"|FM_t|>{FM_T_THRESHOLD} CS_eff>{CS_EFFECTIVE_THRESHOLD} "
           f"(Bonferroni |t|>{BONFERRONI_T:.2f})")
 
-    factor_tensor = compute_factor_tensor(close_matrix)
+    factor_tensor = compute_factor_tensor(close_matrix, fields=fields)
 
     results = []
     keep_tensor: dict[str, pd.DataFrame] = {}
-    for field, spec in FACTOR_SPECS.items():
+    for field in fields:
+        spec = FACTOR_SPECS[field]
         fdf = factor_tensor[field].where(member_daily)   # PIT 成员掩码
         ic_m = compute_ic_ir_monthly(fdf, fwd, med)
         fm_m = compute_fm_monthly(fdf, fwd, med)
