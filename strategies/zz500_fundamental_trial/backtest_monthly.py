@@ -63,12 +63,19 @@ def ffill_to_daily(pred_month_end: pd.DataFrame, close_matrix: pd.DataFrame) -> 
 def equal_weight_baseline(factor_tensor: dict[str, pd.DataFrame],
                           member_daily: pd.DataFrame,
                           close_matrix: pd.DataFrame) -> pd.DataFrame:
-    """等权基线（CLAUDE.md 铁律 4）：最终池因子截面 zscore 等权均值 → 月末信号。"""
-    frames = []
-    for f, df in factor_tensor.items():
+    """等权基线（CLAUDE.md 铁律 4）：最终池因子截面 zscore 等权均值 → 月末信号。
+
+    逐因子累加和 + 有效计数（O(1) 内存，避免 25×1625×3886 的 concat 爆炸）。
+    语义 = 每 (date,symbol) 有效因子均值，NaN 不参与分母——与原
+    concat().groupby(level=0).mean() 完全等价（已验证 np.allclose=True）。
+    """
+    sum_z = None
+    cnt = None
+    for df in factor_tensor.values():
         z = df.sub(df.mean(axis=1), axis=0).div(df.std(axis=1), axis=0)
-        frames.append(z)
-    composite = pd.concat(frames).groupby(level=0).mean()
+        sum_z = z.fillna(0) if sum_z is None else sum_z.add(z.fillna(0))
+        cnt = z.notna().astype(float) if cnt is None else cnt.add(z.notna().astype(float))
+    composite = sum_z.div(cnt.where(cnt > 0))
     composite = composite.where(member_daily)
     # 取月末值
     from purify import month_end_dates
