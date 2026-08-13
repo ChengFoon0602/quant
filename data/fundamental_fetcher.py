@@ -20,6 +20,7 @@ PIT 策略:
 前向填充由 signals/fundamental/factors.py 负责。
 """
 
+import json
 import time
 from pathlib import Path
 
@@ -221,6 +222,23 @@ INTERFACE_GROUPS: dict[str, tuple[object, list[str]]] = {
 }
 
 
+def _build_tasks(
+    symbols: list[str],
+    years: range,
+    years_by_symbol: dict[str, range] | None = None,
+) -> list[tuple[str, str, int, int]]:
+    """构造 (bs_code, sym, y, q) 查询任务。years_by_symbol 按股票裁剪年份
+    （IPO 裁剪：只查上市后的季度，省查询配额）。纯函数，便于单测。"""
+    tasks = []
+    for sym in symbols:
+        bs_code = _to_baostock_code(sym)
+        yr = years_by_symbol.get(sym, years) if years_by_symbol else years
+        for y in yr:
+            for q in (1, 2, 3, 4):
+                tasks.append((bs_code, sym, y, q))
+    return tasks
+
+
 def fetch_interface(
     symbols: list[str],
     api_func,
@@ -228,6 +246,7 @@ def fetch_interface(
     years: range | None = None,
     verbose: bool = True,
     qps: float = 3.0,
+    years_by_symbol: dict[str, range] | None = None,
 ) -> dict[str, pd.DataFrame]:
     """按接口批处理拉取多个财务字段（每 (code, y, q) 只查询一次）。
 
@@ -240,6 +259,8 @@ def fetch_interface(
         qps: 每查询的最小间隔对应的速率（queries/sec）。baostock 对账号有风控，
             曾因 6 进程并行 36 q/s 触发「黑名单」封禁；重试必须低速串行
             （默认 3 q/s，单个进程，安全）。
+        years_by_symbol: {symbol: range} 按股票裁剪查询年份（IPO 裁剪，
+            见 get_ipo_year_map）。缺省股票用 years 全范围。
 
     Returns
         dict: {field: date×symbol PIT 宽表}，并逐个写缓存到 cache_fundamental/{field}.csv
@@ -248,12 +269,7 @@ def fetch_interface(
     if years is None:
         years = range(2007, 2026)
 
-    tasks = []
-    for sym in symbols:
-        bs_code = _to_baostock_code(sym)
-        for y in years:
-            for q in (1, 2, 3, 4):
-                tasks.append((bs_code, sym, y, q))
+    tasks = _build_tasks(symbols, years, years_by_symbol)
 
     records: dict[str, list[dict]] = {f: [] for f in fields}
     n_done = 0
@@ -338,6 +354,49 @@ def get_zz500_pit_symbols() -> list[str]:
     from data.index_membership import load_membership
     mem = load_membership("zz500")
     return sorted(mem.columns.astype(str))
+
+
+# ── IPO 裁剪 ──────────────────────────────────────────────────
+
+IPO_CACHE = Path(__file__).parent / "cache_meta" / "ipo_years.json"
+
+
+def get_ipo_year_map(symbols: list[str], refresh: bool = False) -> dict[str, int]:
+    """逐只 query_stock_basic 拿 IPO 年份，缓存 JSON 复用。
+
+    Returns {symbol: int(IPO 年)}。IPO 日期不变，一次拉取永久复用。
+    封禁中查询全失败时返回空 dict 且不写缓存（避免污染后续批次）。
+
+    Parameters
+        symbols: 6 位股票代码列表
+        refresh: True 时忽略缓存强制重拉
+    """
+    if not refresh and IPO_CACHE.exists():
+        cached = json.loads(IPO_CACHE.read_text(encoding="utf-8"))
+        if cached:
+            return cached
+
+    bs.login()
+    year_map: dict[str, int] = {}
+    for sym in symbols:
+        try:
+            rs = bs.query_stock_basic(code=_to_baostock_code(sym))
+            if rs.error_code == "0":
+                fields_list = list(rs.fields)
+                if "ipoDate" in fields_list and rs.next():
+                    row = rs.get_row_data()
+                    ipo = row[fields_list.index("ipoDate")]
+                    if ipo:
+                        year_map[sym] = int(ipo[:4])
+        except Exception:
+            pass
+    bs.logout()
+
+    if year_map:   # 不缓存空结果（封禁中拿到空 → 不污染后续批次）
+        IPO_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        IPO_CACHE.write_text(json.dumps(year_map), encoding="utf-8")
+    print(f"  IPO 年份映射: {len(year_map)}/{len(symbols)} 只 | 缓存 {IPO_CACHE}")
+    return year_map
 
 
 # ── 缓存接口 ──────────────────────────────────────────────────
