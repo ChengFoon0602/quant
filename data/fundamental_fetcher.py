@@ -340,8 +340,10 @@ def fetch_interface(
             print(f"  [WARN] {f}: 未命中任何数据")
             result[f] = pd.DataFrame()
             continue
-        df_wide = _records_to_wide(records[f], f)
-        df_wide.to_csv(_cache_path(f))
+        # 合并写盘（复用 _save_checkpoint 的合并语义）：绝不能覆盖已有缓存——
+        # 逐字段 to_csv 覆盖会把其他批次已拉的同字段数据冲掉（曾丢 batch 0 的 583 只）。
+        _save_checkpoint(records[f], f)
+        df_wide = load_cached_field(f)
         if verbose:
             print(f"  {f}: {len(df_wide)} 个 PIT 日期 × {len(df_wide.columns)} 只股票 "
                   f"({df_wide.index[0].date()} → {df_wide.index[-1].date()})")

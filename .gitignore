@@ -41,6 +41,9 @@ strategies/zz500_pit_trial/keep_tensor.pkl.gz
 strategies/zz500_pit_trial/oof_predictions_pit_select.csv
 
 # 方向2（PIT 基本面）输出（可重建）
+# 拉取调度状态（运行时产物，批次进度）
+data/fetch_batch_state.json
+data/cache_meta/ipo_years.json
 strategies/zz500_fundamental_trial/X_monthly.csv
 strategies/zz500_fundamental_trial/y_monthly.csv
 strategies/zz500_fundamental_trial/oof_predictions_monthly.csv
