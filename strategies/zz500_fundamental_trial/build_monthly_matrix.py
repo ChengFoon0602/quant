@@ -29,6 +29,17 @@ sys.path.insert(0, str(FEATURE_SEL_DIR))
 from build_pit_matrix import load_pit_panel, build_market_features_pit
 
 
+def _fallback_diagnostic_pool() -> list[str]:
+    """四维 0 通过时的退化池：IC_t 绝对值 top-10（含 selection bias，仅诊断上限）。"""
+    pur_path = THIS_DIR / "purify_results_monthly.csv"
+    if not pur_path.exists():
+        raise SystemExit("缺 purify_results_monthly.csv，先跑 purify.py")
+    pur = pd.read_csv(pur_path)
+    pool = pur.sort_values("IC_t", key=abs, ascending=False)["factor"].head(10).tolist()
+    print(f"[WARN] 四维 0 通过，退化 IC_t top-10 诊断池: {pool}（含 selection bias，仅上限）")
+    return pool
+
+
 def build_monthly_matrix(close_matrix, volume_matrix, member_daily,
                          factor_tensor: dict[str, pd.DataFrame],
                          final_pool: list[str]) -> tuple[pd.DataFrame, pd.Series]:
@@ -36,8 +47,10 @@ def build_monthly_matrix(close_matrix, volume_matrix, member_daily,
 
     Parameters
         factor_tensor: {field: date×symbol 日频因子}（已含成员掩码）
-        final_pool: 提纯后因子池
+        final_pool: 提纯后因子池；为空时退化为 IC_t top-10 诊断池
     """
+    if not final_pool:
+        final_pool = _fallback_diagnostic_pool()
     frames = [factor_tensor[f].stack().rename(f) for f in final_pool]
     X_factor = pd.concat(frames, axis=1)
 

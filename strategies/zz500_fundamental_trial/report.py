@@ -46,8 +46,8 @@ def load_pool_from_purify() -> list[str]:
     pur = pd.read_csv(THIS_DIR / "purify_results_monthly.csv")
     passed = pur[pur["pass"]]
     if passed.empty:
-        print("[WARN] 无四维通过因子，用 |IC_IR| 前 10 候选诊断")
-        return pur.sort_values("IC_IR", key=abs, ascending=False)["factor"].head(10).tolist()
+        print("[WARN] 无四维通过因子，用 |IC_t| 前 10 候选诊断（含 selection bias，仅上限）")
+        return pur.sort_values("IC_t", key=abs, ascending=False)["factor"].head(10).tolist()
     return passed.sort_values("IC_IR", key=abs, ascending=False)["factor"].head(10).tolist()
 
 
@@ -65,6 +65,9 @@ def stage_purify(close, volume, member):
 def stage_matrix(close, volume, member, final_pool):
     from build_monthly_matrix import build_monthly_matrix
     from signals.fundamental.factors import compute_factor_tensor
+    if not final_pool:
+        # 空池退化：先用 IC_t top-10 诊断池算张量（否则 compute 空池 → 空 tensor → KeyError）
+        final_pool = load_pool_from_purify()
     factor_tensor = compute_factor_tensor(close, final_pool)
     factor_tensor = {f: df.where(member) for f, df in factor_tensor.items()}
     X, y = build_monthly_matrix(close, volume, member, factor_tensor, final_pool)

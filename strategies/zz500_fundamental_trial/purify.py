@@ -159,6 +159,8 @@ def purify_and_select(close_matrix, volume_matrix, member_daily, fields: list[st
     results = []
     keep_tensor: dict[str, pd.DataFrame] = {}
     for field in fields:
+        if field not in factor_tensor:
+            continue   # 缺缓存因子已跳过（akshare 换源后 5 个无对应列）
         spec = FACTOR_SPECS[field]
         fdf = factor_tensor[field].where(member_daily)   # PIT 成员掩码
         ic_m = compute_ic_ir_monthly(fdf, fwd, med)

@@ -215,7 +215,11 @@ def main():
     from purify import purify_and_select
     final_pool, purify_df, _, _, _ = purify_and_select(close, volume, member)
     if not final_pool:
-        raise SystemExit("全样本提纯无通过因子，停止")
+        # 四维 0 通过：退化 IC_t top-10 诊断池（含 selection bias，仅上限）。
+        # PIT-Select 每年重选池仍可能选不出 → 那正是「基本面无 alpha」的全否定实证。
+        print("[WARN] 全样本提纯无通过因子，退化 IC_t top-10 固定池对照")
+        pur = pd.read_csv(THIS_DIR / "purify_results_monthly.csv")
+        final_pool = pur.sort_values("IC_t", key=abs, ascending=False)["factor"].head(10).tolist()
 
     print("\n[3] 固定池 WF（对照，pool 全样本选定）...")
     fy, fwf, m_fwf, fpred = walk_forward_annual(

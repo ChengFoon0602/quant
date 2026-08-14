@@ -211,6 +211,9 @@ def list_factor_specs() -> pd.DataFrame:
 def compute_factor_tensor(close_matrix: pd.DataFrame, fields: list[str] | None = None) -> dict[str, pd.DataFrame]:
     """批量计算指定因子的日频张量 {field: date×symbol}。
 
+    缺缓存的因子自动跳过（akshare 换源后 5 个新浪无对应列的因子无缓存），
+    不报错——报告以实际可用因子为准。
+
     Parameters
         close_matrix: 价格面板（对齐日期与股票）
         fields: 因子名列表；None = 全部 25 个
@@ -219,5 +222,8 @@ def compute_factor_tensor(close_matrix: pd.DataFrame, fields: list[str] | None =
         fields = list(FACTOR_SPECS.keys())
     tensor = {}
     for f in fields:
-        tensor[f] = globals()[f"compute_{f}"](close_matrix)
+        try:
+            tensor[f] = globals()[f"compute_{f}"](close_matrix)
+        except RuntimeError:
+            print(f"  [skip] {f}: 无缓存，跳过")
     return tensor
