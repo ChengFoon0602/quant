@@ -99,6 +99,11 @@ models/methodology_correction.csv
 strategies/factor_discovery/bootstrap_block_sensitivity.csv
 strategies/factor_discovery/bootstrap_full_sweep.csv
 
+# 方向C（拥挤度）运行时产物（可重建）
+strategies/zz500_crowding_trial/crowding_time_series.csv
+strategies/zz500_crowding_trial/fundamental_crowding_time_series.csv
+strategies/zz500_crowding_trial/event_study_*.csv
+
 # 临时诊断脚本 (scratch)
 _diag_*.py
 
