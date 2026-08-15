@@ -128,9 +128,56 @@ def plot_conditional_returns(cond_df: pd.DataFrame):
     print(f"图表保存: {path}")
 
 
+def plot_crowding_comparison(crowd_v: pd.DataFrame, crowd_f: pd.DataFrame):
+    """图3: 量价 vs 基本面综合拥挤度对比时序。"""
+    fig, ax = plt.subplots(figsize=(14, 5))
+    z_v = crowd_v.sub(crowd_v.mean()).div(crowd_v.std()).mean(axis=1)
+    z_f = crowd_f.sub(crowd_f.mean()).div(crowd_f.std()).mean(axis=1)
+    ax.plot(z_v.index, z_v.values, label="量价 16 因子（动量类）", color="#c44e52", linewidth=1.3)
+    ax.plot(z_f.index, z_f.values, label="基本面 20 因子（估值/质量）", color="#4c72b0", linewidth=1.3)
+    for ev_date, ev_name in MARKET_EVENTS.items():
+        ax.axvline(pd.Timestamp(ev_date), color="gray", linestyle=":", linewidth=0.8)
+    ax.axhline(0, color="gray", linewidth=0.5)
+    ax.set_title("量价 vs 基本面因子综合拥挤度对比（2010-2025）")
+    ax.set_xlabel("date"); ax.set_ylabel("综合拥挤度 z-score")
+    ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    path = FIGURES_DIR / "03_crowding_comparison.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"图表保存: {path}")
+
+
+def plot_event_study(ev_summary: pd.DataFrame):
+    """图4: 极端拥挤事件后 3/6/12 月因子收益 vs 常态。"""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    x = np.arange(len(ev_summary))
+    w = 0.35
+    ev = ev_summary["event_mean_cum"].values
+    nm = ev_summary["normal_mean_cum"].values
+    ax.bar(x - w / 2, ev, w, label="极端拥挤后", color="#c44e52")
+    ax.bar(x + w / 2, nm, w, label="常态对照", color="#4c72b0")
+    ax.axhline(0, color="gray", linewidth=0.5)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{h} 月" for h in ev_summary["horizon_months"]])
+    ax.set_ylabel("累计因子收益")
+    ax.set_title("极端拥挤（>90 分位）后因子收益 vs 常态（bootstrap 对照）")
+    ax.legend(fontsize=8); ax.grid(True, alpha=0.3, axis="y")
+    for i, r in ev_summary.iterrows():
+        ax.text(i - w / 2, r["event_mean_cum"] + 0.01, f"n={int(r['n_events'])}",
+                ha="center", fontsize=7)
+        ax.text(i + w / 2, r["normal_mean_cum"] + 0.01, f"p={r['p_worse_than_normal']:.2f}",
+                ha="center", fontsize=7)
+    plt.tight_layout()
+    path = FIGURES_DIR / "04_event_study.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"图表保存: {path}")
+
+
 def main():
     section("方向C：中证500 因子拥挤度时序研究")
-    print("[1] 加载数据...")
+    print("[1] 加载数据（量价池）...")
     X_long = load_factor_matrix(PIT_TRIAL_DIR / "X_matrix.csv")
     close, volume, member = load_pit_panel(INDEX)
     turnover = pd.read_csv(PIT_TRIAL_DIR / "X_matrix.csv") \
@@ -138,28 +185,57 @@ def main():
     turnover.index = pd.to_datetime(turnover.index)
     print(f"  X_matrix: {X_long.shape} | 面板 {close.shape}")
 
-    print("[2] 计算拥挤度指标（C1-C4）...")
-    crowd_ts = compute_all(X_long, close, turnover)
-    crowd_ts.to_csv(THIS_DIR / "crowding_time_series.csv")
-    print(f"  时序: {crowd_ts.shape}（{crowd_ts.index[0].date()} → {crowd_ts.index[-1].date()}）")
-    for col in crowd_ts.columns:
-        print(f"    {col}: mean={crowd_ts[col].mean():.4f} std={crowd_ts[col].std():.4f} "
-              f"max={crowd_ts[col].max():.4f}")
-
-    print("[3] 条件收益分析（拥挤度分桶 → 未来 12 月因子收益）...")
-    factor_ret = load_factor_matrix(PIT_TRIAL_DIR / "X_matrix.csv")  # 重读（占内存）
-    from crowding import factor_monthly_returns
+    print("[2] 计算量价池拥挤度（C1-C4）...")
+    from crowding import compute_all, factor_monthly_returns
+    crowd_v = compute_all(X_long, close, turnover)
+    crowd_v.to_csv(THIS_DIR / "crowding_time_series.csv")
     med = month_end_dates(X_long.index.get_level_values(0).unique())
-    fr = factor_monthly_returns(X_long, med, close)
-    cond = conditional_return_analysis(crowd_ts, fr)
+    fr_v = factor_monthly_returns(X_long, med, close)
+    print(f"  量价时序: {crowd_v.shape}（{crowd_v.index[0].date()} → {crowd_v.index[-1].date()}）")
+    for col in crowd_v.columns:
+        print(f"    {col}: mean={crowd_v[col].mean():.4f}")
+
+    print("[3] 条件收益（量价池，拥挤度分桶 → 未来 12 月）...")
+    cond = conditional_return_analysis(crowd_v, fr_v)
     print(cond.to_string(index=False))
 
-    print("[4] 生成图表...")
-    plot_crowding_timeseries(crowd_ts)
+    print("[4] 基本面池拥挤度（对比）...")
+    from fundamental_crowding import load_fundamental_long, FUNDAMENTAL_COLS
+    X_fund, close_f = load_fundamental_long()
+    from build_pit_matrix import build_market_features_pit
+    _, vol_f, mem_f = load_pit_panel(INDEX)
+    mkt_f = build_market_features_pit(close_f, vol_f, mem_f)
+    crowd_f = compute_all(X_fund, close_f, mkt_f["market_turnover_20d"], factor_cols=FUNDAMENTAL_COLS)
+    crowd_f.to_csv(THIS_DIR / "fundamental_crowding_time_series.csv")
+    med_f = month_end_dates(X_fund.index.get_level_values(0).unique())
+    fr_f = factor_monthly_returns(X_fund, med_f, close_f, factor_cols=FUNDAMENTAL_COLS)
+    cond_f = conditional_return_analysis(crowd_f, fr_f)
+    print("  基本面池条件收益：")
+    print(cond_f.to_string(index=False))
+
+    print("[5] 事件研究（极端拥挤 >90 分位 → 后续因子收益）...")
+    from event_study import composite_crowding, extreme_events, event_windows, summarize
+    for name, crowd, fr in [("量价", crowd_v, fr_v), ("基本面", crowd_f, fr_f)]:
+        comp = composite_crowding(crowd)
+        events = extreme_events(comp)
+        ev_df = event_windows(events, fr)
+        ev_sum = summarize(ev_df, fr.mean(axis=1))
+        print(f"  [{name}] 极端事件 {len(events)} 个: "
+              + ", ".join(f"{e.date()}" for e in events))
+        print(ev_sum.to_string(index=False))
+        ev_sum.to_csv(THIS_DIR / f"event_study_{name}.csv", index=False)
+
+    print("[6] 生成图表...")
+    plot_crowding_timeseries(crowd_v)
     plot_conditional_returns(cond)
+    plot_crowding_comparison(crowd_v, crowd_f)
+    # 事件研究图（量价池）
+    comp_v = composite_crowding(crowd_v)
+    ev_sum_v = summarize(event_windows(extreme_events(comp_v), fr_v), fr_v.mean(axis=1))
+    plot_event_study(ev_sum_v)
 
     section("完成")
-    print(f"时序保存: {THIS_DIR}/crowding_time_series.csv")
+    print(f"时序保存: {THIS_DIR}/crowding_time_series.csv + fundamental_crowding_time_series.csv")
 
 
 if __name__ == "__main__":
