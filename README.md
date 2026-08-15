@@ -6,25 +6,36 @@
 
 ```
 quant/
-├── data/fetcher.py            # 数据获取（baostock + akshare）
-├── backtest/engine.py         # 向量化回测引擎
-├── signals/                   # 策略信号（待扩展）
-├── risk/                      # 风控模块（待扩展）
-├── viz/                       # 可视化（待扩展）
-├── strategies/                # 策略实验
-│   └── ma_crossover/          # MA 交叉趋势跟踪完整回测
-│       ├── report.md          # 图文报告
-│       └── figures/           # 图表
+├── data/                      # 数据获取（baostock + akshare）+ 缓存
+├── signals/                   # 因子库（alpha191、基本面）
+├── backtest/                  # 向量化回测引擎
+├── strategies/                # 策略实验（每个子目录 = 一项独立研究）
+│   └── <name>/report.md       # 图文报告 + figures/
+├── models/                    # ML 模型 + 方法论修正记录
 └── bootstrap.py               # 首次数据拉取脚本
 ```
 
-## 已完成研究
+## 研究报告索引（按研究弧线阅读顺序）
 
-### MA 交叉趋势跟踪策略
+> **研究弧线**：从「单因子/单票 → ML 合成 → 换指数 → 换信息源 → 市场结构」一路收敛，
+> 最后结论是 **A 股日线级截面 alpha 在扣除真实成本后不成立**，转向理解市场结构。
+> 每份报告的「方法论修正」章节往往是比结论更有价值的部分（记录了真实踩坑）。
 
-- **结论: 策略在统计上不产生显著超额收益。**
-- 方法: 参数相图 + 样本外检验 + Bootstrap MC + 全市场 Bonferroni 校正
-- 详见 [`strategies/ma_crossover/report.md`](strategies/ma_crossover/report.md)
+| 阅读序 | 报告 | 阶段 | 核心结论 |
+|--------|------|------|---------|
+| 1 | [`ma_crossover`](strategies/ma_crossover/report.md) | 单票时序 | MA 交叉无显著超额——A 股有效性起点 |
+| 2 | [`alpha001_trial`](strategies/alpha001_trial/report.md) | 单因子截面 | Alpha001 IC>0 但信息比率负，跑不赢基准 |
+| 3 | [`multi_factor_trial/alpha012_alpha055_alpha191`](strategies/multi_factor_trial/alpha012_alpha055_alpha191/report.md) | 多因子合成 | 三因子两个是噪声一个有效，合成不改善 |
+| 4 | [`factor_discovery`](strategies/factor_discovery/report.md) | 因子提纯 | 191→106 候选，alpha141 是「纸老虎」（IC 高无分散度） |
+| 5 | [`feature_selection`](strategies/feature_selection/report.md) | 特征选择 | 191→16 因子（含「事故 universe」更正记录） |
+| 6 | [`models/report.md`](models/report.md) | ML 非线性合成 | **方法论修正 I/II/III**：夏普 8.75→0.08 的完整踩坑史（overlapping returns 平滑 + 幸存者偏差） |
+| 7 | [`zz500_pit_trial`](strategies/zz500_pit_trial/report.md) | 路线② 量价×中证500 | 信号翻倍（OOF 1.618）但 **selection bias 消除后 0.295**，三方向全否定 |
+| 8 | [`zz500_fundamental_trial`](strategies/zz500_fundamental_trial/report.md) | 方向2 基本面 | 换源 akshare，20 因子三层检验全否定，弧线闭合 |
+| 9 | [`zz500_crowding_trial`](strategies/zz500_crowding_trial/report.md) | 方向C 市场结构 | 量价延续 vs 基本面反转双面体 + 低拥挤择时可交易性初探 |
+
+**方法论铁律**（贯穿全部报告，详见 `CLAUDE.md`）：
+未来函数（`.shift(1)` / PIT 公告日）、幸存者偏差（PIT 成分股）、Overlapping Returns 平滑陷阱、
+selection bias（WF 年度重选池）、摩擦成本（双边 0.3%）。
 
 ## 快速开始
 
