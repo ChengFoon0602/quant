@@ -234,8 +234,35 @@ def main():
     ev_sum_v = summarize(event_windows(extreme_events(comp_v), fr_v), fr_v.mean(axis=1))
     plot_event_study(ev_sum_v)
 
+    print("[7] 可交易性测试（基本面低拥挤策略）...")
+    from tradability import run_tradability
+    trad = run_tradability()
+    print(f"  策略: SR={trad['strategy']['sharpe']:+.3f} 年化={trad['strategy']['annual']:+.2%} "
+          f"回撤={trad['strategy']['mdd']:.2f} bootstrap_p={trad['strategy']['bootstrap_p']:.4f}")
+    print(f"  基准: SR={trad['baseline']['sharpe']:+.3f} 年化={trad['baseline']['annual']:+.2%} "
+          f"bootstrap_p={trad['baseline']['bootstrap_p']:.4f}")
+    print(f"  成本敏感性: " + " ".join(f"{c*100:.1f}%→SR={v:+.3f}" for c, v in trad["cost_sensitivity"].items()))
+    plot_tradability(trad["strategy_ret"], trad["baseline_ret"])
+
     section("完成")
     print(f"时序保存: {THIS_DIR}/crowding_time_series.csv + fundamental_crowding_time_series.csv")
+
+
+def plot_tradability(strat_ret: pd.Series, base_ret: pd.Series):
+    """图5: 低拥挤策略 vs 无条件基准累计净值对比。"""
+    fig, ax = plt.subplots(figsize=(12, 5))
+    s_nav = (1 + strat_ret.fillna(0)).cumprod()
+    b_nav = (1 + base_ret.fillna(0)).cumprod()
+    ax.plot(s_nav.index, s_nav.values, label="低拥挤策略（0.3% 成本）", color="#2ca02c", linewidth=1.3)
+    ax.plot(b_nav.index, b_nav.values, label="无条件基准（始终持有）", color="#c44e52", linewidth=1.1)
+    ax.set_title("基本面低拥挤策略 vs 无条件因子多空（累计净值）")
+    ax.set_xlabel("date"); ax.set_ylabel("累计净值")
+    ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    path = FIGURES_DIR / "05_tradability.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"图表保存: {path}")
 
 
 if __name__ == "__main__":
