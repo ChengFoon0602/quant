@@ -104,6 +104,12 @@ strategies/zz500_crowding_trial/crowding_time_series.csv
 strategies/zz500_crowding_trial/fundamental_crowding_time_series.csv
 strategies/zz500_crowding_trial/event_study_*.csv
 
+# 方向C 延伸④（跨指数）运行时产物（可重建）
+strategies/hs300_crowding_trial/X_matrix_hs300.csv
+strategies/hs300_crowding_trial/crowding_time_series_*.csv
+strategies/hs300_crowding_trial/fundamental_crowding_time_series_*.csv
+strategies/hs300_crowding_trial/event_study_*.csv
+
 # 临时诊断脚本 (scratch)
 _diag_*.py
 

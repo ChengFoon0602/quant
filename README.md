@@ -17,7 +17,7 @@ quant/
 
 ## 研究报告索引（按研究弧线阅读顺序）
 
-> **研究弧线**：从「单因子/单票 → ML 合成 → 换指数 → 换信息源 → 市场结构」一路收敛，
+> **研究弧线**：从「单因子/单票 → ML 合成 → 换指数 → 换信息源 → 市场结构 → 跨指数验证」一路收敛，
 > 最后结论是 **A 股日线级截面 alpha 在扣除真实成本后不成立**，转向理解市场结构。
 > 每份报告的「方法论修正」章节往往是比结论更有价值的部分（记录了真实踩坑）。
 
@@ -32,6 +32,7 @@ quant/
 | 7 | [`zz500_pit_trial`](strategies/zz500_pit_trial/report.md) | 路线② 量价×中证500 | 信号翻倍（OOF 1.618）但 **selection bias 消除后 0.295**，三方向全否定 |
 | 8 | [`zz500_fundamental_trial`](strategies/zz500_fundamental_trial/report.md) | 方向2 基本面 | 换源 akshare，20 因子三层检验全否定，弧线闭合 |
 | 9 | [`zz500_crowding_trial`](strategies/zz500_crowding_trial/report.md) | 方向C 市场结构 | 量价延续 vs 基本面反转双面体 + 低拥挤择时可交易性初探 |
+| 10 | [`hs300_crowding_trial`](strategies/hs300_crowding_trial/report.md) | 方向C 延伸④ 跨指数 | **跨指数验证证伪**：沪深300 双面体不成立、择时 SR −1.69、基本面因子多空 p=0.0002 确证负 alpha——中证500 发现是小盘特例 |
 
 **方法论铁律**（贯穿全部报告，详见 `CLAUDE.md`）：
 未来函数（`.shift(1)` / PIT 公告日）、幸存者偏差（PIT 成分股）、Overlapping Returns 平滑陷阱、
