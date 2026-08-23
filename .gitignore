@@ -3,6 +3,7 @@ data/cache/
 data/cache_fundamental/
 data/cache_valuation/
 data/cache_index/
+data/cache_etf/
 
 # Python
 __pycache__/
