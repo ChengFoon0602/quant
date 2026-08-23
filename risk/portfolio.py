@@ -1,10 +1,11 @@
 """
-risk/portfolio.py — 基于权重追踪的真实重叠持仓与组合管理引擎。
+risk/portfolio.py — 基于权重追踪的真实重叠持仓、交易限制与组合管理引擎。
 
-核心方法论（防范 Overlapping Returns 平滑陷阱）：
-  严禁对信号收益率做 rolling(H).mean() 构造组合收益（该方法人为压低波动 sqrt(H) 倍导致夏普虚高）。
-  本模块基于每日目标权重向量 w[t]，追踪实际持有权重 W[t] = mean(w[t-H+1]..w[t])。
-  第 t 日组合收益 = W[t-1] · daily_ret[t]，所有持有批次（tranche）在同一天经历真实市场波动。
+核心方法论（防范 Overlapping Returns 平滑陷阱与微观交易限制）：
+  1. 严禁对信号收益率做 rolling(H).mean() 构造组合收益（该方法人为压低波动 sqrt(H) 倍导致夏普虚高）。
+  2. 本模块基于每日目标权重向量 w[t]，追踪实际持有权重 W[t] = mean(w[t-H+1]..w[t])。
+  3. 支持实盘微观交易限制拦截（一字涨停禁买、一字跌停禁卖）。
+  4. 支持目标波动率风控（Volatility Targeting）与自适应杠杆控制。
 """
 
 from __future__ import annotations
@@ -12,6 +13,40 @@ from __future__ import annotations
 from typing import Tuple, Dict, Any, Optional
 import numpy as np
 import pandas as pd
+
+
+def detect_limit_moves(
+    open_matrix: pd.DataFrame,
+    high_matrix: pd.DataFrame,
+    low_matrix: pd.DataFrame,
+    pre_close_matrix: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """根据开高低收和昨收价，检测全市场标的是否处于一字涨停（禁买）或一字跌停（禁卖）状态。
+
+    A 股涨跌停规则适配：
+      - 30 / 68 开头：20% 涨跌停
+      - 其余主板股票：10% 涨跌停
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, pd.DataFrame]
+        (is_limit_up_locked, is_limit_down_locked) 布尔掩码矩阵。
+    """
+    limit_pct = pd.Series(0.10, index=open_matrix.columns)
+    for col in open_matrix.columns:
+        if str(col).startswith(("30", "68")):
+            limit_pct[col] = 0.20
+
+    # 近似涨跌停价（A 股四舍五入到分位）
+    limit_up = (pre_close_matrix * (1.0 + limit_pct)).round(2)
+    limit_down = (pre_close_matrix * (1.0 - limit_pct)).round(2)
+
+    # 一字涨停：开盘价 >= 涨停价 且 最低价 == 最高价
+    is_limit_up_locked = (open_matrix >= limit_up - 0.01) & (high_matrix == low_matrix)
+    # 一字跌停：开盘价 <= 跌停价 且 最低价 == 最高价
+    is_limit_down_locked = (open_matrix <= limit_down + 0.01) & (high_matrix == low_matrix)
+
+    return is_limit_up_locked.fillna(False), is_limit_down_locked.fillna(False)
 
 
 def build_weight_portfolio(
@@ -25,6 +60,7 @@ def build_weight_portfolio(
     hold_days: int = 5,
     position_scale: Optional[pd.Series] = None,
     gate: Optional[pd.Series] = None,
+    trade_limits: Optional[Tuple[pd.DataFrame, pd.DataFrame]] = None,
     return_weights: bool = False,
 ) -> pd.DataFrame | Tuple[pd.DataFrame, pd.DataFrame]:
     """构建真实重叠组合回测（权重追踪法）。
@@ -51,20 +87,14 @@ def build_weight_portfolio(
         逐日仓位系数（如市场高波动时降低仓位），后乘于实际持仓 W 上。
     gate : Optional[pd.Series], default None
         市场状态闸门（0 或 1），前乘于目标权重 w 上（闸门关闭期间不建立新仓位）。
+    trade_limits : Optional[Tuple[pd.DataFrame, pd.DataFrame]], default None
+        (is_limit_up_locked, is_limit_down_locked) 交易不可执行限制掩码。
     return_weights : bool, default False
         是否同时返回每日实际持仓权重矩阵 W_held。
-
-    Returns
-    -------
-    pd.DataFrame or Tuple[pd.DataFrame, pd.DataFrame]
-        包含 port_ret (扣费后组合日收益), gross_ret (扣费前组合日收益),
-        turnover (换手率绝对值之和), cum (累计净值) 的 DataFrame。
-        若 return_weights=True，额外返回 W_held。
     """
     if long_only and short_only:
         raise ValueError("long_only 与 short_only 互斥，不能同时为 True")
 
-    # 无未来函数的次日开盘至次次日开盘/收盘收益：close(t+2)/close(t+1) - 1
     daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
 
     common_dates = pred_df.index.intersection(daily_ret.index).sort_values()
@@ -94,7 +124,7 @@ def build_weight_portfolio(
         if not long_only and len(bot_stocks) > 0:
             W_target.loc[d, bot_stocks] = -1.0 / len(bot_stocks)
 
-    # 若应用状态闸门 (gate)
+    # 状态闸门
     if gate is not None:
         g = gate.reindex(common_dates).fillna(1.0)
         W_target = W_target.mul(g, axis=0)
@@ -102,7 +132,33 @@ def build_weight_portfolio(
     # 2. 实际持仓 W[t] = 过去 hold_days 天目标权重的平均
     W_held = W_target.rolling(hold_days, min_periods=1).mean()
 
-    # 若应用仓位缩放 (position_scale)
+    # 应用微观交易限制（若一字涨停无法买入增仓；一字跌停无法卖出减仓）
+    if trade_limits is not None:
+        lim_up, lim_down = trade_limits
+        lim_up_aligned = lim_up.reindex(index=common_dates, columns=common_cols).fillna(False)
+        lim_down_aligned = lim_down.reindex(index=common_dates, columns=common_cols).fillna(False)
+
+        W_held_constrained = W_held.copy()
+        for i in range(1, len(common_dates)):
+            d_curr = common_dates[i]
+            d_prev = common_dates[i - 1]
+
+            target_w = W_held.loc[d_curr]
+            prev_w = W_held_constrained.loc[d_prev]
+
+            # 试图买入 (w > prev_w) 但一字涨停 -> 无法买入，维持 prev_w
+            cant_buy = (target_w > prev_w) & lim_up_aligned.loc[d_curr]
+            target_w = target_w.mask(cant_buy, prev_w)
+
+            # 试图卖出 (w < prev_w) 但一字跌停 -> 无法卖出，维持 prev_w
+            cant_sell = (target_w < prev_w) & lim_down_aligned.loc[d_curr]
+            target_w = target_w.mask(cant_sell, prev_w)
+
+            W_held_constrained.loc[d_curr] = target_w
+
+        W_held = W_held_constrained
+
+    # 仓位缩放
     if position_scale is not None:
         ps = position_scale.reindex(common_dates).fillna(1.0)
         W_held = W_held.mul(ps, axis=0)
@@ -111,12 +167,12 @@ def build_weight_portfolio(
     W_lag = W_held.shift(1).fillna(0.0)
     gross_ret = (W_lag * r).sum(axis=1)
 
-    # 4. 换手成本：每日换手 = sum(|W[t] - W[t-1]|)，成本 = 换手 * (cost / 2)
+    # 4. 换手成本
     turnover = (W_held - W_held.shift(1).fillna(0.0)).abs().sum(axis=1)
     cost_deduction = turnover * (cost / 2.0)
     port_ret = gross_ret - cost_deduction
 
-    # 丢弃前 hold_days 天建仓爬坡期
+    # 丢弃建仓爬坡期
     if len(port_ret) > hold_days:
         port_ret = port_ret.iloc[hold_days:].dropna()
         gross_ret = gross_ret.reindex(port_ret.index)
@@ -143,21 +199,61 @@ def build_weight_portfolio(
     return result_df
 
 
-def calculate_metrics(ret_series: pd.Series, rf: float = 0.0) -> Dict[str, float]:
-    """计算标准投资组合绩效指标。
+def apply_volatility_target(
+    port_ret_series: pd.Series,
+    target_vol: float = 0.08,
+    max_leverage: float = 2.0,
+    lookback: int = 20,
+    borrow_rate: float = 0.025,
+) -> pd.DataFrame:
+    """对收益率序列应用动态目标波动率机制（Volatility Targeting）。
+
+    杠杆系数 lambda_t = min( target_vol / rolling_vol_t, max_leverage )
+    若 lambda_t > 1.0，扣除杠杆资金借贷成本 (lambda_t - 1) * (borrow_rate / 252)。
 
     Parameters
     ----------
-    ret_series : pd.Series
-        日收益率序列。
-    rf : float, default 0.0
-        年化无风险利率。
+    port_ret_series : pd.Series
+        原始组合日收益率。
+    target_vol : float, default 0.08
+        目标年化波动率（例如 8%）。
+    max_leverage : float, default 2.0
+        最大允许杠杆倍数。
+    lookback : int, default 20
+        波动率滚动估计窗口。
+    borrow_rate : float, default 0.025
+        年化借贷资金成本（例如 2.5%）。
 
     Returns
     -------
-    Dict[str, float]
-        包含年化收益、年化波动、夏普比率、最大回撤、卡玛比率、胜率、盈亏比、lag-1自相关。
+    pd.DataFrame
+        包含 leverage, raw_ret, targeted_ret, cum。
     """
+    s = port_ret_series.dropna()
+    rolling_std = s.rolling(lookback, min_periods=max(5, lookback // 2)).std() * np.sqrt(252.0)
+    rolling_std = rolling_std.replace(0, np.nan).fillna(target_vol)
+
+    # 动态杠杆系数 (滞后 1 期使用，避免未来函数)
+    raw_leverage = target_vol / rolling_std
+    leverage = raw_leverage.clip(lower=0.1, upper=max_leverage).shift(1).fillna(1.0)
+
+    # 借贷成本
+    borrow_cost = np.maximum(0.0, leverage - 1.0) * (borrow_rate / 252.0)
+
+    targeted_ret = (s * leverage) - borrow_cost
+    cum = (1.0 + targeted_ret).cumprod()
+
+    return pd.DataFrame({
+        "leverage": leverage,
+        "raw_ret": s,
+        "borrow_cost": borrow_cost,
+        "targeted_ret": targeted_ret,
+        "cum": cum,
+    })
+
+
+def calculate_metrics(ret_series: pd.Series, rf: float = 0.0) -> Dict[str, float]:
+    """计算标准投资组合绩效指标。"""
     s = ret_series.dropna()
     if len(s) < 2:
         return {
@@ -175,12 +271,10 @@ def calculate_metrics(ret_series: pd.Series, rf: float = 0.0) -> Dict[str, float
     daily_mean = s.mean()
     daily_std = s.std()
 
-    # 年化指标
     annual_return = daily_mean * 252.0
     annual_vol = daily_std * np.sqrt(252.0)
     sharpe = (annual_return - rf) / annual_vol if annual_vol > 1e-8 else 0.0
 
-    # 累计净值与最大回撤
     cum = (1.0 + s).cumprod()
     peak = cum.cummax()
     drawdown = (cum - peak) / peak
@@ -188,15 +282,12 @@ def calculate_metrics(ret_series: pd.Series, rf: float = 0.0) -> Dict[str, float
 
     calmar = annual_return / abs(max_drawdown) if abs(max_drawdown) > 1e-8 else 0.0
 
-    # 胜率与盈亏比
     wins = s[s > 0]
     losses = s[s < 0]
     win_rate = len(wins) / len(s) if len(s) > 0 else 0.0
     avg_win = wins.mean() if len(wins) > 0 else 0.0
     avg_loss = abs(losses.mean()) if len(losses) > 0 else 0.0
     profit_loss_ratio = avg_win / avg_loss if avg_loss > 1e-8 else 0.0
-
-    # 滞后 1 阶自相关（用于诊断是否有平滑虚高）
     ac1 = float(s.autocorr(lag=1)) if len(s) > 2 else 0.0
 
     return {
@@ -218,24 +309,7 @@ def bootstrap_sharpe_test(
     block_size: int = 20,
     seed: int = 42,
 ) -> Dict[str, Any]:
-    """使用 Moving Block Bootstrap 检验夏普比率的统计显著性。
-
-    Parameters
-    ----------
-    ret_series : pd.Series
-        日收益率序列。
-    n_boot : int, default 10000
-        Bootstrap 抽样次数。
-    block_size : int, default 20
-        块大小（用于保留时序自相关结构）。
-    seed : int, default 42
-        随机种子。
-
-    Returns
-    -------
-    Dict[str, Any]
-        包含 observed_sharpe, p_value, ci_95_low, ci_95_high, boot_sharpes。
-    """
+    """使用 Moving Block Bootstrap 检验夏普比率的统计显著性。"""
     rng = np.random.default_rng(seed)
     s = ret_series.dropna().values
     n = len(s)
@@ -251,7 +325,6 @@ def bootstrap_sharpe_test(
 
     obs_sharpe = float(np.mean(s) / np.std(s, ddof=1) * np.sqrt(252)) if np.std(s, ddof=1) > 1e-8 else 0.0
 
-    # 构造重叠 blocks
     n_blocks = n - block_size + 1
     blocks = np.lib.stride_tricks.sliding_window_view(s, window_shape=block_size)
 

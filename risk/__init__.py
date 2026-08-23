@@ -1,9 +1,11 @@
 """
-risk — 风险控制、组合持仓与市场结构/拥挤度分析模块。
+risk — 风险控制、组合持仓、交易限制与市场结构/拥挤度分析模块。
 """
 
 from risk.portfolio import (
     build_weight_portfolio,
+    detect_limit_moves,
+    apply_volatility_target,
     calculate_metrics,
     bootstrap_sharpe_test,
 )
@@ -24,6 +26,8 @@ from risk.crowding import (
 
 __all__ = [
     "build_weight_portfolio",
+    "detect_limit_moves",
+    "apply_volatility_target",
     "calculate_metrics",
     "bootstrap_sharpe_test",
     "month_end_dates",

@@ -9,6 +9,8 @@ data/cache_etf/
 __pycache__/
 *.pyc
 *.pyo
+*.parquet
+*.feather
 .venv/
 venv/
 
