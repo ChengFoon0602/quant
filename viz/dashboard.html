@@ -6,48 +6,49 @@
     <title>A股量化投研框架 — 12项研究成果全景看板</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #0f172a; line-height: 1.5; padding: 30px; }
-        .header { max-width: 1300px; margin: 0 auto 30px auto; background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff; padding: 35px; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
-        .header h1 { font-size: 28px; margin-bottom: 8px; font-weight: 700; letter-spacing: -0.5px; }
-        .header p { color: #94a3b8; font-size: 15px; }
-        .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; max-width: 1300px; margin: 0 auto 30px auto; }
-        .card { background: #fff; padding: 22px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-        .card-title { font-size: 13px; font-weight: 600; text-transform: uppercase; color: #64748b; margin-bottom: 6px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f8fafc; color: #0f172a; line-height: 1.5; padding: 32px 24px; }
+        .header { max-width: 1360px; margin: 0 auto 28px auto; background: #ffffff; border: 1px solid #e2e8f0; padding: 28px 32px; border-radius: 12px; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.04); }
+        .header h1 { font-size: 24px; margin-bottom: 6px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px; }
+        .header p { color: #64748b; font-size: 14px; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; max-width: 1360px; margin: 0 auto 28px auto; }
+        .card { background: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.03); }
+        .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 6px; }
         .card-value { font-size: 26px; font-weight: 700; color: #0f172a; }
         .card-desc { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-        .table-container { max-width: 1300px; margin: 0 auto 30px auto; background: #fff; border-radius: 10px; border: 1px solid #e2e8f0; overflow-x: auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
-        th { background: #f1f5f9; color: #334155; padding: 14px 16px; font-weight: 600; border-bottom: 2px solid #cbd5e1; white-space: nowrap; }
-        td { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-        tr:hover { background-color: #f8fafc; }
-        .footer { max-width: 1300px; margin: 0 auto; text-align: center; font-size: 13px; color: #94a3b8; padding-top: 20px; }
+        .table-container { max-width: 1360px; margin: 0 auto 28px auto; background: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0; overflow-x: auto; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.04); }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13.5px; }
+        th { background: #f8fafc; color: #475569; padding: 12px 14px; font-weight: 600; font-size: 12.5px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+        td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background-color: #fafbfc; }
+        .footer { max-width: 1360px; margin: 0 auto; text-align: center; font-size: 12.5px; color: #94a3b8; padding-top: 16px; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>A股量化投研框架 — 12项系统性研究成果全景看板</h1>
-        <p>完整研究弧线：单票时序 → 单/多因子截面 → 特征提纯 → ML非线性合成（三大修正史） → 中小盘与基本面证伪 → 市场结构 → 跨指数证伪 → 大类资产避险 → 欧拉风险平价</p>
+        <h1>A股量化投研框架 — 12 项系统性研究成果全景看板</h1>
+        <p>演进弧线：单票时序 → 截面因子 → 特征提纯 → ML非线性合成（三大修正史） → 中小盘与基本面证伪 → 市场结构 → 跨指数证伪 → 大类资产避险 → 欧拉风险平价</p>
     </div>
 
     <div class="metrics-grid">
         <div class="card">
             <div class="card-title">系统性研究篇数</div>
             <div class="card-value">12 篇</div>
-            <div class="card-desc">涵盖日线选股、市场结构与跨资产配置</div>
+            <div class="card-desc">涵盖选股、市场结构与跨资产配置</div>
         </div>
         <div class="card">
             <div class="card-title">全天候风险平价夏普 (SR)</div>
-            <div class="card-value" style="color:#059669;">1.775</div>
+            <div class="card-value" style="color:#15803d;">1.775</div>
             <div class="card-desc">Bootstrap p=0.0000 极度显著</div>
         </div>
         <div class="card">
             <div class="card-title">全天候组合最大回撤</div>
-            <div class="card-value" style="color:#059669;">-4.02%</div>
+            <div class="card-value" style="color:#15803d;">-4.02%</div>
             <div class="card-desc">较沪深300 (-45.10%) 回撤降低 91%</div>
         </div>
         <div class="card">
             <div class="card-title">工程底座与测试覆盖</div>
-            <div class="card-value">100% 通过</div>
+            <div class="card-value">21 项全过</div>
             <div class="card-desc">权重追踪法、无未来函数与微观交易拦截</div>
         </div>
     </div>
@@ -56,174 +57,246 @@
         <table>
             <thead>
                 <tr>
-                    <th style="text-align:center;">序</th>
-                    <th>研究课题 / 报告路径</th>
-                    <th>研究阶段</th>
-                    <th>状态判决</th>
-                    <th style="text-align:right;">年化收益</th>
-                    <th style="text-align:right;">年化波动</th>
-                    <th style="text-align:right;">夏普 (SR)</th>
-                    <th style="text-align:right;">最大回撤</th>
-                    <th style="text-align:right;">卡玛比率</th>
-                    <th>核心结论与物理机制</th>
+                    <th style="text-align:center; width:40px;">#</th>
+                    <th style="min-width:180px;">研究课题 / 报告路径</th>
+                    <th style="min-width:110px;">研究阶段</th>
+                    <th style="text-align:center; min-width:110px;">状态判决</th>
+                    <th style="text-align:right; min-width:80px;">年化收益</th>
+                    <th style="text-align:right; min-width:80px;">年化波动</th>
+                    <th style="text-align:right; min-width:80px;">夏普比率</th>
+                    <th style="text-align:right; min-width:80px;">最大回撤</th>
+                    <th style="text-align:right; min-width:70px;">卡玛比率</th>
+                    <th style="min-width:320px;">核心结论与物理机制</th>
                 </tr>
             </thead>
             <tbody>
                 
         <tr>
-            <td style="text-align:center; font-weight:bold;">1</td>
-            <td><a href="../strategies/ma_crossover/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">MA 均线时序交叉</a><br><small style="color:#64748b;">strategies/ma_crossover/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">单票时序探索</span></td>
-            <td><span style="background:#ef4444; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">证伪 (Negative)</span></td>
-            <td style="text-align:right;">-1.20%</td>
-            <td style="text-align:right;">22.50%</td>
-            <td style="text-align:right; ">-0.05</td>
-            <td style="text-align:right; ">-38.20%</td>
-            <td style="text-align:right;">-0.03</td>
-            <td style="font-size:13px; color:#334155;">A 股单票时序均线策略在摩擦成本下无显著超额，确立研究起点。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">01</td>
+            <td>
+                <a href="../strategies/ma_crossover/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">MA 均线时序交叉</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/ma_crossover/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">单票时序</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; color:#64748b; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8;"></span>
+            证伪闭环
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">-1.20%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">22.50%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#94a3b8;">-0.05</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-38.20%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">-0.03</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">单票时序均线在 A 股真实摩擦下无显著超额，确立研究起点。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">2</td>
-            <td><a href="../strategies/alpha001_trial/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">Alpha001 截面单因子</a><br><small style="color:#64748b;">strategies/alpha001_trial/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">单因子截面检验</span></td>
-            <td><span style="background:#ef4444; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">证伪 (Negative)</span></td>
-            <td style="text-align:right;">+2.10%</td>
-            <td style="text-align:right;">24.10%</td>
-            <td style="text-align:right; ">0.09</td>
-            <td style="text-align:right; ">-41.50%</td>
-            <td style="text-align:right;">0.05</td>
-            <td style="font-size:13px; color:#334155;">Alpha001 IC>0 但信息比率负，扣费后无法战胜基准。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">02</td>
+            <td>
+                <a href="../strategies/alpha001_trial/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">Alpha001 截面单因子</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/alpha001_trial/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">单因子截面</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; color:#64748b; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8;"></span>
+            证伪闭环
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">+2.10%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">24.10%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#334155;">0.09</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-41.50%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">0.05</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">Alpha001 秩 IC 虽然大于 0 但信息比率负，扣费后跑不赢基准。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">3</td>
-            <td><a href="../strategies/multi_factor_trial/alpha012_alpha055_alpha191/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">Alpha012/055/191 多因子合成</a><br><small style="color:#64748b;">strategies/multi_factor_trial/alpha012_alpha055_alpha191/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">多因子线性合成</span></td>
-            <td><span style="background:#ef4444; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">证伪 (Negative)</span></td>
-            <td style="text-align:right;">+3.40%</td>
-            <td style="text-align:right;">23.80%</td>
-            <td style="text-align:right; ">0.14</td>
-            <td style="text-align:right; ">-39.80%</td>
-            <td style="text-align:right;">0.09</td>
-            <td style="font-size:13px; color:#334155;">三因子两个为纯噪声，线性等权合成无法改善夏普。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">03</td>
+            <td>
+                <a href="../strategies/multi_factor_trial/alpha012_alpha055_alpha191/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">Alpha012/055/191 多因子合成</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/multi_factor_trial/alpha012_alpha055_alpha191/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">多因子线性合成</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; color:#64748b; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8;"></span>
+            证伪闭环
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">+3.40%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">23.80%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#334155;">0.14</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-39.80%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">0.09</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">三因子两个为纯噪声，简单线性等权合成无法改善风险收益。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">4</td>
-            <td><a href="../strategies/factor_discovery/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">Alpha 191 全量因子提纯</a><br><small style="color:#64748b;">strategies/factor_discovery/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">因子工程与提纯</span></td>
-            <td><span style="background:#3b82f6; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">方法论里程碑</span></td>
-            <td style="text-align:right;">N/A</td>
-            <td style="text-align:right;">N/A</td>
-            <td style="text-align:right; ">N/A</td>
-            <td style="text-align:right; ">N/A</td>
-            <td style="text-align:right;">N/A</td>
-            <td style="font-size:13px; color:#334155;">191 因子提纯至 106 个有效候选；识别出 alpha141 等高 IC 无分散度的假因子。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">04</td>
+            <td>
+                <a href="../strategies/factor_discovery/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">Alpha 191 全量因子提纯</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/factor_discovery/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">因子工程提纯</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f1f5f9; border:1px solid #cbd5e1; color:#334155; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#64748b;"></span>
+            方法论基石
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">—</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">—</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#94a3b8;">—</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#94a3b8;">—</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">—</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">191 因子提纯至 106 个候选；识别出 alpha141 等高 IC 无分散度的假因子。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">5</td>
-            <td><a href="../strategies/feature_selection/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">特征选择与 Universe 修复</a><br><small style="color:#64748b;">strategies/feature_selection/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">特征工程</span></td>
-            <td><span style="background:#f59e0b; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">踩坑修正</span></td>
-            <td style="text-align:right;">N/A</td>
-            <td style="text-align:right;">N/A</td>
-            <td style="text-align:right; ">N/A</td>
-            <td style="text-align:right; ">N/A</td>
-            <td style="text-align:right;">N/A</td>
-            <td style="font-size:13px; color:#334155;">精炼 16 个核心特征，发现并修复了事故 Universe 导致的特征漂移。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">05</td>
+            <td>
+                <a href="../strategies/feature_selection/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">特征选择与 Universe 修复</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/feature_selection/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">特征工程</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#f59e0b;"></span>
+            方法论修正
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">—</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">—</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#94a3b8;">—</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#94a3b8;">—</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">—</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">精炼 16 个核心特征，发现并修复了事故 Universe 导致的特征漂移。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">6</td>
-            <td><a href="../models/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">LightGBM 机器学习合成 (踩坑修正史)</a><br><small style="color:#64748b;">models/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">ML 非线性合成</span></td>
-            <td><span style="background:#8b5cf6; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">核心方法论修正</span></td>
-            <td style="text-align:right;">+1.80%</td>
-            <td style="text-align:right;">21.50%</td>
-            <td style="text-align:right; ">0.08</td>
-            <td style="text-align:right; ">-43.20%</td>
-            <td style="text-align:right;">0.04</td>
-            <td style="font-size:13px; color:#334155;">三大修正：夏普 8.75 虚假神话破灭（Overlapping 平滑陷阱 + 幸存者偏差 + 时序泄露）。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">06</td>
+            <td>
+                <a href="../models/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">LightGBM 机器学习非线性合成</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">models/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">ML 非线性合成</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#f59e0b;"></span>
+            核心修正史
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">+1.80%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">21.50%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#334155;">0.08</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-43.20%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">0.04</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">三大修正：夏普 8.75 虚假神话破灭（Overlapping 平滑陷阱 + 幸存者偏差）。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">7</td>
-            <td><a href="../strategies/zz500_pit_trial/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">中证500 PIT 选股实验</a><br><small style="color:#64748b;">strategies/zz500_pit_trial/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">中小盘量价探索</span></td>
-            <td><span style="background:#ef4444; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">证伪 (Negative)</span></td>
-            <td style="text-align:right;">+6.80%</td>
-            <td style="text-align:right;">23.10%</td>
-            <td style="text-align:right; ">0.295</td>
-            <td style="text-align:right; ">-35.40%</td>
-            <td style="text-align:right;">0.19</td>
-            <td style="font-size:13px; color:#334155;">OOF 表面夏普 1.618，但在消除选择偏差与幸存者偏差后收敛至 0.295，三方向全否定。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">07</td>
+            <td>
+                <a href="../strategies/zz500_pit_trial/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">中证500 PIT 选股实验</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/zz500_pit_trial/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">中小盘量价探索</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; color:#64748b; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8;"></span>
+            证伪闭环
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">+6.80%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">23.10%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#334155;">0.295</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-35.40%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">0.19</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">OOF 表面夏普 1.618，但在消除选择偏差与幸存者偏差后收敛至 0.295。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">8</td>
-            <td><a href="../strategies/zz500_fundamental_trial/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">20 个基本面因子全面检验</a><br><small style="color:#64748b;">strategies/zz500_fundamental_trial/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">基本面信息源</span></td>
-            <td><span style="background:#ef4444; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">证伪 (Negative)</span></td>
-            <td style="text-align:right;">+1.50%</td>
-            <td style="text-align:right;">20.80%</td>
-            <td style="text-align:right; ">0.07</td>
-            <td style="text-align:right; ">-44.10%</td>
-            <td style="text-align:right;">0.03</td>
-            <td style="font-size:13px; color:#334155;">使用 akshare 引入 20 个财报因子，三层检验全否定，个股 Alpha 弧线全面闭合。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">08</td>
+            <td>
+                <a href="../strategies/zz500_fundamental_trial/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">20 个基本面因子全面检验</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/zz500_fundamental_trial/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">基本面信息源</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; color:#64748b; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8;"></span>
+            证伪闭环
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">+1.50%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">20.80%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#334155;">0.07</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-44.10%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">0.03</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">akshare 财报因子三层检验全否定，个股截面日线 Alpha 弧线全面闭合。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">9</td>
-            <td><a href="../strategies/zz500_crowding_trial/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">市场结构与拥挤度时序测度</a><br><small style="color:#64748b;">strategies/zz500_crowding_trial/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">市场微观结构</span></td>
-            <td><span style="background:#10b981; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">结构发现</span></td>
-            <td style="text-align:right;">+8.40%</td>
-            <td style="text-align:right;">18.20%</td>
-            <td style="text-align:right; ">0.46</td>
-            <td style="text-align:right; ">-28.50%</td>
-            <td style="text-align:right;">0.29</td>
-            <td style="font-size:13px; color:#334155;">发现量价动量延续 vs 基本面反转双面体特征，低拥挤择时展现可交易性。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">09</td>
+            <td>
+                <a href="../strategies/zz500_crowding_trial/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">市场结构与拥挤度时序测度</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/zz500_crowding_trial/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">市场微观结构</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#22c55e;"></span>
+            结构发现
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">+8.40%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">18.20%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#334155;">0.460</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-28.50%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">0.29</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">量价动量延续 vs 基本面反转双面体特征，低拥挤择时展现可交易性。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">10</td>
-            <td><a href="../strategies/hs300_crowding_trial/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">沪深300 跨指数验证 (反转证伪)</a><br><small style="color:#64748b;">strategies/hs300_crowding_trial/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">跨指数普适性检验</span></td>
-            <td><span style="background:#ef4444; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">证伪 (Negative)</span></td>
-            <td style="text-align:right;">-3.80%</td>
-            <td style="text-align:right;">22.30%</td>
-            <td style="text-align:right; ">-1.69</td>
-            <td style="text-align:right; ">-48.70%</td>
-            <td style="text-align:right;">-0.08</td>
-            <td style="font-size:13px; color:#334155;">沪深300 证伪小盘双面体与择时，证明所谓微观结构效应只是小盘特例。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">10</td>
+            <td>
+                <a href="../strategies/hs300_crowding_trial/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">沪深300 跨指数验证 (证伪反转)</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/hs300_crowding_trial/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">跨指数普适性检验</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; color:#64748b; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8;"></span>
+            证伪闭环
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">-3.80%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">22.30%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#94a3b8;">-1.690</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-48.70%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">-0.08</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">沪深300 证伪小盘双面体与择时，确证微观结构效应只是小盘特例。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">11</td>
-            <td><a href="../strategies/etf_momentum_crowding/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">ETF 动量反转与股债金避险轮动</a><br><small style="color:#64748b;">strategies/etf_momentum_crowding/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">大类资产避险</span></td>
-            <td><span style="background:#10b981; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">实证突破</span></td>
-            <td style="text-align:right;">+6.23%</td>
-            <td style="text-align:right;">15.20%</td>
-            <td style="text-align:right; ">0.410</td>
-            <td style="text-align:right; ">-22.97%</td>
-            <td style="text-align:right;">0.271</td>
-            <td style="font-size:13px; color:#334155;">行业动量反转显著；股债金全天候避险将最大回撤腰斩（-53.18% -> -22.97%），费率极度韧性。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">11</td>
+            <td>
+                <a href="../strategies/etf_momentum_crowding/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">ETF 动量反转与股债金避险轮动</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/etf_momentum_crowding/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">大类资产避险</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#22c55e;"></span>
+            实证突破
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">+6.23%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">15.20%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#334155;">0.410</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#475569;">-22.97%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">0.271</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">行业动量反转显著；股债金全天候避险将最大回撤腰斩（-53.18% -> -22.97%）。</td>
         </tr>
         
         <tr>
-            <td style="text-align:center; font-weight:bold;">12</td>
-            <td><a href="../strategies/all_weather_risk_parity/report.md" style="color:#2563eb; text-decoration:none; font-weight:600;">全天候多资产欧拉风险平价 (ERC)</a><br><small style="color:#64748b;">strategies/all_weather_risk_parity/report.md</small></td>
-            <td><span style="color:#475569; font-weight:500;">大类资产配置终局</span></td>
-            <td><span style="background:#059669; color:#fff; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;">终极稳健底座</span></td>
-            <td style="text-align:right;">+5.89%</td>
-            <td style="text-align:right;">3.32%</td>
-            <td style="text-align:right; font-weight:700; color:#059669;">1.775</td>
-            <td style="text-align:right; font-weight:700; color:#059669;">-4.02%</td>
-            <td style="text-align:right;">1.465</td>
-            <td style="font-size:13px; color:#334155;">欧拉等风险贡献打破股票风险垄断，全周期夏普 1.775、回撤仅 4.02%、Bootstrap p=0.0000 压倒性显著。</td>
+            <td style="text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; font-size:13px;">12</td>
+            <td>
+                <a href="../strategies/all_weather_risk_parity/report.md" style="color:#0f172a; text-decoration:none; font-weight:600; transition: color 0.15s;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#0f172a'">全天候多资产欧拉风险平价 (ERC)</a>
+                <div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">strategies/all_weather_risk_parity/report.md</div>
+            </td>
+            <td><span style="color:#475569; font-size:13px;">大类资产配置终局</span></td>
+            <td style="text-align:center;"><span style="display:inline-flex; align-items:center; gap:5px; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; white-space:nowrap;">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#3b82f6;"></span>
+            终极稳健底座
+        </span></td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums;">+5.89%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">3.32%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; font-weight:700; color:#15803d;">1.775</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; font-weight:700; color:#15803d;">-4.02%</td>
+            <td style="text-align:right; font-variant-numeric:tabular-nums; color:#64748b;">1.465</td>
+            <td style="font-size:13px; color:#475569; line-height:1.45;">欧拉等风险贡献消除股票风险霸权，夏普 1.775、回撤仅 4.02%、Bootstrap p=0.0000 压倒性显著。</td>
         </tr>
         
             </tbody>
