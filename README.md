@@ -34,6 +34,7 @@ quant/
 | 9 | [`zz500_crowding_trial`](strategies/zz500_crowding_trial/report.md) | 方向C 市场结构 | 量价延续 vs 基本面反转双面体 + 低拥挤择时可交易性初探 |
 | 10 | [`hs300_crowding_trial`](strategies/hs300_crowding_trial/report.md) | 方向C 延伸④ 跨指数 | **跨指数验证证伪**：沪深300 双面体不成立、择时 SR −1.69、基本面因子多空 p=0.0002 确证负 alpha——中证500 发现是小盘特例 |
 | 11 | [`etf_momentum_crowding`](strategies/etf_momentum_crowding/report.md) | 阶段D ETF与大类资产 | **行业动量反转 + 股债金避险**：行业 ETF 截面动量显现反转（Rank IC −0.0385）；叠加 MA20 趋势与国债/黄金避险后，**最大回撤从 −53.18% 降至 −22.97%（回撤腰斩）**，双边 4 bps 超低摩擦 |
+| 12 | [`all_weather_risk_parity`](strategies/all_weather_risk_parity/report.md) | 阶段E 全天候多资产配置 | **欧拉风险平价 (ERC)**：跨资产等风险贡献消除股票风险霸权，2015-2025 全周期 **SR=1.775、MDD 仅 −4.02% (降低 91%)、Bootstrap p=0.0000**，奠定极稳底层资产配置底座 |
 
 **方法论铁律**（贯穿全部报告，详见 `CLAUDE.md`）：
 未来函数（`.shift(1)` / PIT 公告日）、幸存者偏差（PIT 成分股）、Overlapping Returns 平滑陷阱、
