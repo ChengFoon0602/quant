@@ -116,3 +116,7 @@ _diag_*.py
 # Jupyter
 .ipynb_checkpoints/
 strategies/hs300_crowding_trial/run_output.txt
+
+# Interview Info
+generate_pdf.py
+Interview_Project_Intro.pdf
