@@ -74,8 +74,15 @@ def get_csi300_constituents() -> pd.DataFrame:
 
 # ── 日线数据 ──────────────────────────────────────────────
 
-def _cache_path(symbol: str) -> Path:
-    return CACHE_DIR / f"{symbol}.csv"
+def _cache_path(symbol: str, adjust: str = "2") -> Path:
+    """缓存路径，按复权方式区分，避免前/后复权数据互相覆盖。
+
+    adjust="2"（前复权）沿用旧路径 {symbol}.csv（向后兼容存量缓存），
+    其余复权方式用 {symbol}_adj{adjust}.csv 独立存储。
+    """
+    if adjust == "2":
+        return CACHE_DIR / f"{symbol}.csv"
+    return CACHE_DIR / f"{symbol}_adj{adjust}.csv"
 
 
 def download_daily(
@@ -91,10 +98,16 @@ def download_daily(
         start, end: 起止日期 YYYY-MM-DD
         adjust: "2"=前复权 / "1"=后复权 / "3"=不复权
 
+    ⚠️ 复权方式选择（2026-09 修订）：
+      - 前复权 ("2")：历史价随最新除权事件回溯调整，只适合单票时序回测，
+        会污染截面因子与 ML 训练的时点可比性。
+      - 后复权 ("1")：历史价相对恒定，适合截面比较与因子计算（推荐截面/ML 用）。
+      - 不复权 ("3")：真实成交价，需配复权因子表才能算总回报。
+
     Returns
         标准化 DataFrame: open, high, low, close, volume, amount
     """
-    cache_path = _cache_path(symbol)
+    cache_path = _cache_path(symbol, adjust=adjust)
 
     # 检查缓存覆盖范围：全量覆盖则直接返回，否则补全缺失的前后段
     if cache_path.exists():
@@ -168,9 +181,13 @@ def download_daily(
     return df
 
 
-def load_daily(symbol: str) -> pd.DataFrame | None:
-    """从本地缓存读取日线数据，未缓存则返回 None。"""
-    p = _cache_path(symbol)
+def load_daily(symbol: str, adjust: str = "2") -> pd.DataFrame | None:
+    """从本地缓存读取日线数据，未缓存则返回 None。
+
+    Parameters
+        adjust: 复权方式，与 download_daily 一致，决定读取哪个缓存文件。
+    """
+    p = _cache_path(symbol, adjust=adjust)
     if not p.exists():
         return None
     df = pd.read_csv(p, parse_dates=["date"], index_col="date").sort_index()
