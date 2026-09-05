@@ -151,7 +151,7 @@ def plot_nav(results: dict, idx_ret: pd.Series, bench_name: str, bench_cum: pd.S
         ax.plot(df["cum"], label=name, linewidth=1.2)
     ax.plot(bench_cum, label=bench_name, color="black", linewidth=1.0, linestyle="--")
     ax.axhline(1.0, color="gray", linewidth=0.5)
-    ax.set_title("累计净值（扣 0.3% 双边成本）")
+    ax.set_title("累计净值（铁律 0.1% 双边成本，买/卖分离）")
     ax.set_ylabel("净值")
     ax.legend()
     ax.grid(True, alpha=0.3)

@@ -247,7 +247,7 @@ def plot_gate_and_nav(idx_close, gate, nav_gated, nav_perm):
     ax.plot(nav_perm.index, nav_perm["cum"], label="永续空头 (borrow 0%)", linewidth=1.2,
             linestyle="--", color="gray")
     ax.axhline(1.0, color="gray", linewidth=0.5)
-    ax.set_title("gated vs 永续空头累计净值（扣 0.3% 双边成本）")
+    ax.set_title("gated vs 永续空头累计净值（铁律 0.1% 双边成本）")
     ax.set_ylabel("净值")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
@@ -342,7 +342,7 @@ def main():
     valid = pred_liq.notna().sum(axis=1)
     print(f"  逐日有效股票数: 中位 {valid.median():.0f} / 原中位 {pred.notna().sum(axis=1).median():.0f}")
 
-    # 4. 组合（全部 short_only, hold=10, 0.3% 双边）
+    # 4. 组合（全部 short_only, hold=10, 铁律 0.1% 双边）
     print("\n[4] 组合...")
     # 永续基线（无闸门）
     df_perm, W_perm = short_pf(pred_liq, close, gate=None)
