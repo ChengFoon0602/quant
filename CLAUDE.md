@@ -224,8 +224,10 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
 
 1. **`models/portfolio_backtest.py::build_portfolio` 的错位收益**：
    该函数（被几乎所有截面/ML 策略脚本调用）使用 `daily_ret = close.shift(-2)/close.shift(-1)-1`，
-   即「t+1→t+2 收益记在 t 日」，配合 `W_lag = W_held.shift(1)` 导致时序错配。
-   需单独论证：这是作者有意的「信号日收盘→次日开盘买→隔日卖」单日持有近似，还是真实未来函数？
-   论证文档见 `docs/收益成本口径统一论证.md`。在结论明确前，**不得**擅自修改该函数及重跑受影响报告。
+   即「t+1→t+2 收益记在 t 日」，配合 `W_lag = W_held.shift(1)`。
+   **定性（2026-09-05 经逐日推演+数值实验确认）**：非未来函数，而是「信号延迟错配」——
+   信号到收益隔 2 天空窗，导致动量类 alpha 被系统性低估约 10%（方向保守，不虚高）。
+   论证文档见 `docs/收益成本口径统一论证.md`。收口前需重跑受影响报告（models/、zz500_pit、zz500_fundamental）对比新旧 SR。
 2. **成本口径三套并存的收口**：`engine.py`（买/卖分离）、`cross_section.py`（买/卖分离）、
-   `models/portfolio_backtest.py`（cost/2 对半）三处口径不统一，需随议题 1 一并收口。
+   `models/portfolio_backtest.py`（cost/2 对半，且 COST_BPS=0.003 是铁律 0.1% 的 3 倍）三处口径不统一，
+   收口后成本下降 2/3，受影响组合 SR 会上升，需随议题 1 一并重跑确认显著性。
