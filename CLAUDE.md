@@ -229,5 +229,7 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
    信号到收益隔 2 天空窗，导致动量类 alpha 被系统性低估约 10%（方向保守，不虚高）。
    论证文档见 `docs/收益成本口径统一论证.md`。收口前需重跑受影响报告（models/、zz500_pit、zz500_fundamental）对比新旧 SR。
 2. **成本口径三套并存的收口**：`engine.py`（买/卖分离）、`cross_section.py`（买/卖分离）、
-   `models/portfolio_backtest.py`（cost/2 对半，且 COST_BPS=0.003 是铁律 0.1% 的 3 倍）三处口径不统一，
-   收口后成本下降 2/3，受影响组合 SR 会上升，需随议题 1 一并重跑确认显著性。
+   `models/portfolio_backtest.py`（cost/2 对半，且 COST_BPS=0.003 是铁律 0.1% 的 3 倍）三处口径不统一。
+   **真实数据对照（2026-09-05 实测，790 只×3886 日）**：收口后 LS 夏普 0.036→1.175（成本是主导因素，
+   多空两端换手被 0.3% 成本压死）、LO 1.187→1.613。**旧口径的「多空 alpha 不成立」是被「过高成本+收益错位」
+   双重 bug 压出来的错误结论，收口后 LS 结论反转**。需重跑 models/、zz500_pit、zz500_fundamental 三份报告更新结论。

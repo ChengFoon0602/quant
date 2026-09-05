@@ -62,12 +62,13 @@ def run_capacity_sweep(
     aum_grid: list[float],
     k: float = 0.5,
     hold_days: int = 5,
-    cost: float = 0.003,
+    cost: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """对 AUM 网格跑容量检验，返回 (容量衰减表, 基准组合)。
 
-    基准组合：build_portfolio(return_flows=True) 拿 flows + port_ret（已扣固定成本 cost）。
+    基准组合：build_portfolio(return_flows=True) 拿 flows + port_ret（已扣成本）。
     每个 AUM 在基准上叠加冲击成本重算夏普。flows 与 cost 无关（cost 只影响收益）。
+    cost=None 时走 build_portfolio 默认的方向分离铁律成本。
 
     aum_grid 单位：元（如 5e8 = 5 亿）。
     """

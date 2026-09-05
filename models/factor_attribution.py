@@ -60,10 +60,9 @@ def load_market_and_portfolios():
                 close_data[sym] = s
     close_matrix = pd.DataFrame(close_data).sort_index()
 
-    # 市场等权 overlapped 5 日收益（与组合构建一致）
-    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
-    market_signal = daily_ret.mean(axis=1)
-    market_ret = market_signal.rolling(5).mean().dropna()
+    # 市场等权日收益（与组合构建一致：pct_change，不做 rolling 平滑）
+    daily_ret = close_matrix.pct_change()
+    market_ret = daily_ret.mean(axis=1).dropna()
 
     # 读取组合收益
     lgb_ls = pd.read_csv(MODEL_DIR / "portfolio_backtest_summary.csv")  # placeholder
@@ -71,9 +70,9 @@ def load_market_and_portfolios():
     from models.portfolio_backtest import load_data as pb_load_data
     pred_lgb, alpha001, close_matrix, _, _, _ = pb_load_data()
 
-    lgb_ls_df = build_portfolio(pred_lgb, close_matrix, long_only=False, cost=0.003, hold_days=5)
-    lgb_lo_df = build_portfolio(pred_lgb, close_matrix, long_only=True, cost=0.003, hold_days=5)
-    a001_ls_df = build_portfolio(alpha001, close_matrix, long_only=False, cost=0.003, hold_days=5)
+    lgb_ls_df = build_portfolio(pred_lgb, close_matrix, long_only=False, hold_days=5)
+    lgb_lo_df = build_portfolio(pred_lgb, close_matrix, long_only=True, hold_days=5)
+    a001_ls_df = build_portfolio(alpha001, close_matrix, long_only=False, hold_days=5)
 
     portfolios = {
         "LightGBM LS": lgb_ls_df["port_ret"],

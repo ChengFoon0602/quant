@@ -85,7 +85,7 @@ def stage_backtest(close, member, pred_matrix):
     import backtest_monthly as bm
     from backtest_monthly import ffill_to_daily, yearly_metrics
     pred_daily = ffill_to_daily(pred_matrix, close)
-    lo = bm.build_portfolio(pred_daily, close, long_only=True, cost=COST_BPS, hold_days=1)
+    lo = bm.build_portfolio(pred_daily, close, long_only=True, hold_days=1)
     m_lo = performance_metrics(lo["port_ret"])
     yr = yearly_metrics(lo["port_ret"])
     print(f"\n  [回测] LO 年化 {m_lo['annual']:+.2%} 夏普 {m_lo['sharpe']:+.3f}")
@@ -167,7 +167,7 @@ def main():
         import backtest_monthly as bm
         lo, m_lo, yr = stage_backtest(close, member, pred_matrix)
         # 基准
-        daily_ret = close.shift(-2) / close.shift(-1) - 1
+        daily_ret = close.pct_change()
         mask_al = member.reindex_like(daily_ret).fillna(False).astype(bool)
         market_ret = daily_ret.where(mask_al).mean(axis=1).dropna()
         m_mkt = performance_metrics(market_ret)
@@ -183,7 +183,7 @@ def main():
             tensor = {f: df.where(member) for f, df in tensor.items()}
             ew_m = bm.equal_weight_baseline(tensor, member, close)
             lo_ew = bm.build_portfolio(bm.ffill_to_daily(ew_m, close), close,
-                                       long_only=True, cost=COST_BPS, hold_days=1)
+                                       long_only=True, hold_days=1)
             m_ew = performance_metrics(lo_ew["port_ret"])
         _, p_lo = bm.block_bootstrap_sharpe(lo["port_ret"])
         _, p_ew = bm.block_bootstrap_sharpe(lo_ew["port_ret"]) if m_ew else (None, np.nan)

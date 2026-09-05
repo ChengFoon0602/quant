@@ -103,7 +103,7 @@ def run_gate(close_matrix, pred_daily):
     idx_close = idx["close"].reindex(close_matrix.index).ffill()
     gate = build_gate(idx_close, variant="V1", confirm_days=1)
     pf_gate = build_portfolio(pred_daily, close_matrix, long_only=True,
-                              cost=COST_BPS, hold_days=1, gate=gate)
+                              hold_days=1, gate=gate)
     return pf_gate, gate
 
 
@@ -122,14 +122,14 @@ def main():
 
     # 2. LO / LS（主口径：hold=1 + 前向填充）
     print("\n[2] 月调仓组合（hold=1 + 前向填充, 双边 0.3%）...")
-    lo = build_portfolio(pred_daily, close, long_only=True, cost=COST_BPS, hold_days=1)
-    ls = build_portfolio(pred_daily, close, long_only=False, cost=COST_BPS, hold_days=1)
+    lo = build_portfolio(pred_daily, close, long_only=True, hold_days=1)
+    ls = build_portfolio(pred_daily, close, long_only=False, hold_days=1)
     m_lo, m_ls = performance_metrics(lo["port_ret"]), performance_metrics(ls["port_ret"])
     print(f"  LO: 年化 {m_lo['annual']:+.2%} 夏普 {m_lo['sharpe']:+.3f} 回撤 {m_lo['mdd']:+.2%}")
     print(f"  LS: 年化 {m_ls['annual']:+.2%} 夏普 {m_ls['sharpe']:+.3f} 回撤 {m_ls['mdd']:+.2%}")
 
     # 市场基准（成员等权）
-    daily_ret = close.shift(-2) / close.shift(-1) - 1
+    daily_ret = close.pct_change()
     mask_al = member.reindex_like(daily_ret).fillna(False).astype(bool)
     market_ret = daily_ret.where(mask_al).mean(axis=1).dropna()
     m_mkt = performance_metrics(market_ret)
@@ -156,7 +156,7 @@ def main():
     tensor = {f: df.where(member) for f, df in tensor.items()}
     ew_m = equal_weight_baseline(tensor, member, close)
     ew_daily = ffill_to_daily(ew_m, close)
-    lo_ew = build_portfolio(ew_daily, close, long_only=True, cost=COST_BPS, hold_days=1)
+    lo_ew = build_portfolio(ew_daily, close, long_only=True, hold_days=1)
     m_ew = performance_metrics(lo_ew["port_ret"])
     print(f"  等权 LO: 年化 {m_ew['annual']:+.2%} 夏普 {m_ew['sharpe']:+.3f}")
 

@@ -53,7 +53,7 @@ from strategies.zz500_pit_trial.capacity import run_capacity_sweep
 from data.zz500_index import load_zz500_index
 from data.industry import load_industry
 
-COST_BPS = 0.003
+COST_BPS = 0.00102  # 双边合计铁律 0.1%（2026-09 收口，build_portfolio 默认走方向分离）
 HOLD = 5
 TOP_Q = 0.20
 AUM_GRID = [0.5e8, 2e8, 5e8, 20e8, 50e8]  # 0.5亿 ~ 50亿
@@ -73,14 +73,14 @@ def load_pred_pit_select() -> pd.DataFrame:
 
 
 def index_daily_ret(index_close: pd.DataFrame, common_dates) -> pd.Series:
-    """指数基准收益，与 build_portfolio 同口径: r[t] = close(t+2)/close(t+1)-1。"""
-    r = index_close["close"].shift(-2) / index_close["close"].shift(-1) - 1
+    """指数基准收益，与 build_portfolio 同口径: pct_change()（收益锚定 t 日）。"""
+    r = index_close["close"].pct_change()
     return r.reindex(common_dates)
 
 
 def member_equal_weight_ret(close_matrix, member_daily, common_dates) -> pd.Series:
     """成员等权基准（第二基准），同口径。"""
-    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    daily_ret = close_matrix.pct_change()
     mask = member_daily.reindex(index=daily_ret.index, columns=daily_ret.columns).fillna(False)
     mret = daily_ret.where(mask).mean(axis=1)
     return mret.reindex(common_dates)
@@ -96,8 +96,8 @@ def excess_metrics(port_ret: pd.Series, bench_ret: pd.Series) -> tuple[dict, pd.
 
 
 def rank_ic_daily(pred_matrix: pd.DataFrame, close_matrix: pd.DataFrame) -> pd.Series:
-    """每日 Spearman Rank IC: pred[t] vs fwd_ret[t]（同口径 close(t+2)/close(t+1)-1）。"""
-    fwd = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    """每日 Spearman Rank IC: pred[t] vs fwd_ret[t]（同口径 pct_change().shift(-1)，t→t+1 收益记在 t）。"""
+    fwd = close_matrix.pct_change().shift(-1)
     dates, ics = [], []
     for d in pred_matrix.index:
         if d not in fwd.index:
@@ -228,9 +228,9 @@ def main():
           f"（低=中性化洗掉较多信号；高=信号不在行业/市值上）")
 
     # 3. 组合对比
-    print("\n[3] LO 组合对比（hold=5, 双边 0.3% 成本）...")
-    lo_raw = build_portfolio(pred, close, long_only=True, cost=COST_BPS, hold_days=HOLD)
-    lo_neu = build_portfolio(pred_neutral, close, long_only=True, cost=COST_BPS, hold_days=HOLD)
+    print("\n[3] LO 组合对比（hold=5, 铁律成本 买0.026%/卖0.076%）...")
+    lo_raw = build_portfolio(pred, close, long_only=True, hold_days=HOLD)
+    lo_neu = build_portfolio(pred_neutral, close, long_only=True, hold_days=HOLD)
     m_raw, m_neu = performance_metrics(lo_raw["port_ret"]), performance_metrics(lo_neu["port_ret"])
 
     idx_ret = index_daily_ret(idx, common_dates)
@@ -257,7 +257,7 @@ def main():
     cap_dfs = {}
     for k in [0.3, 1.0]:
         cap_df, _ = run_capacity_sweep(pred_neutral, close, amount,
-                                       AUM_GRID, k=k, hold_days=HOLD, cost=COST_BPS)
+                                       AUM_GRID, k=k, hold_days=HOLD)
         cap_dfs[k] = cap_df
         for _, r in cap_df.iterrows():
             print(f"  k={k}  AUM={r['aum_yi']:>5.1f}亿  夏普={r['sharpe']:+.3f}  "

@@ -5,8 +5,8 @@ models/portfolio_backtest.py — 组合回测 + 条件 Alpha 归因。
   1. 将 LightGBM OOF 预测概率转化为交易组合:
      - 每天做多 Top 20%，做空 Bottom 20%（long-short）
      - 以及仅做多 Top 20%（long-only），对比市场基准
-     - 双边摩擦成本 0.3%
-  2. 与 alpha001 单因子组合对比（同样 0.3% 成本）
+     - 双边摩擦成本 0.1%（买 0.026% / 卖 0.076%，铁律标准）
+  2. 与 alpha001 单因子组合对比（同样 0.1% 成本）
   3. Bootstrap 夏普显著性检验
   4. 条件 Alpha 归因：按 market_vol_20d 分高/低波动，看各因子重要性变化
 
@@ -45,7 +45,11 @@ FIGURES_DIR.mkdir(exist_ok=True)
 
 TOP_Q = 0.20
 BOTTOM_Q = 0.20
-COST_BPS = 0.003  # 双边千分之三
+# 成本口径（2026-09 修正）：默认走方向分离 buy_cost/sell_cost（铁律 0.1%）。
+# COST_BPS 仅作向后兼容的「双边合计」常量保留，新代码不再使用。
+COST_BPS = 0.00102  # 双边合计 ≈ 0.1%（买 0.026% + 卖 0.076%）
+BUY_COST = 0.00026
+SELL_COST = 0.00076
 FWD_DAYS = 5
 N_BOOT = 10000
 BLOCK_SIZE = 20
@@ -95,7 +99,7 @@ def load_data():
     # 权重恒定等权 → 无重叠 tranche，直接取截面均值；
     # 旧版 rolling(5).mean() 是平滑陷阱残留（虚压波动 → 基准夏普虚高），已移除
     member_mask = pd.Series(True, index=X_long.index).unstack(fill_value=False)
-    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    daily_ret = close_matrix.pct_change()
     mask_aligned = member_mask.reindex_like(daily_ret).fillna(False).astype(bool)
     market_ret = daily_ret.where(mask_aligned).mean(axis=1).dropna()
 
@@ -109,7 +113,9 @@ def build_portfolio(
     short_only: bool = False,
     top_q: float = TOP_Q,
     bottom_q: float = BOTTOM_Q,
-    cost: float = COST_BPS,
+    cost: float | None = None,
+    buy_cost: float = 0.00026,
+    sell_cost: float = 0.00076,
     hold_days: int = 5,
     position_scale: pd.Series | None = None,
     gate: pd.Series | None = None,
@@ -123,13 +129,19 @@ def build_portfolio(
     人为把日波动压掉 √hold_days 倍 → 夏普虚高 ~8x。见 build_portfolio_naive 与
     report.md「方法论修正」章节。
 
+    ⚠️ 口径修正（2026-09）：收益定义从错位 close(t+2)/close(t+1)-1 改为标准
+    pct_change()（t→t+1 收益记在 t+1 日），与全仓库 engine/cross_section/labels 对齐。
+    错位收益让「信号→收益」隔 2 天空窗，导致动量类 alpha 被系统性低估约 10%
+    （非未来函数，但方向保守）。详见 docs/收益成本口径统一论证.md。
+
     正确构造（Method 1）：
       1. 每天由 signal[t] 生成目标权重向量 w[t]（多头 +1/n_top，空头 -1/n_bottom）。
       2. 实际持仓 W[t] = 过去 hold_days 天目标权重的平均（重叠 tranche）。
       3. 第 t 天组合收益 = W[t-1] · daily_ret[t]，其中
-         daily_ret[t] = close(t+2)/close(t+1)-1（无未来函数）。
+         daily_ret[t] = close[t]/close[t-1]-1（pct_change，收益锚定 t 日）。
          所有 tranche 在同一天经历同一市场波动 → 无虚假平滑。
-      4. 成本 = 每日换手 sum|ΔW| × 单边成本(cost/2)。cost 为双边(round-trip)成本。
+      4. 成本 = 换手 × 方向分离费率：买入 buy_cost、卖出 sell_cost。
+         cost 参数保留向后兼容（双边合计，传入时 buy_cost=sell_cost=cost/2）。
 
     position_scale: 可选的逐日仓位系数（post-multiply，乘在 W_held 上；如高波动降半仓）。
     gate: 可选的逐日 regime 闸门（pre-multiply，乘在 W_target 上、rolling 之前）。
@@ -138,8 +150,13 @@ def build_portfolio(
     short_only: 只写空头分支（bottom 分位等权做空），与 long_only 互斥。
     return_weights: 为 True 时返回 (df, W_held)，W_held 为实际持仓权重（融券成本/暴露统计）。
     """
-    # 无未来函数的日收益：close(t+2)/close(t+1)-1
-    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    # 成本口径归一：cost 为 None 用方向分离；否则对半拆（向后兼容）
+    if cost is not None:
+        buy_cost = cost / 2.0
+        sell_cost = cost / 2.0
+
+    # 收益锚定日约定（全仓库统一）：t→t+1 收益记在 t+1 日，即 pct_change()
+    daily_ret = close_matrix.pct_change()
 
     common_dates = pred_df.index.intersection(daily_ret.index)
     common_cols = pred_df.columns.intersection(daily_ret.columns)
@@ -183,9 +200,12 @@ def build_portfolio(
     W_lag = W_held.shift(1)
     port_gross = (W_lag * r).sum(axis=1, min_count=1)
 
-    # ── 换手成本：每日 sum|ΔW| × 单边成本(cost/2)──
-    turnover = (W_held - W_held.shift(1)).abs().sum(axis=1)
-    port_ret = port_gross - turnover * (cost / 2.0)
+    # ── 换手成本：方向分离（买 buy_cost / 卖 sell_cost）──
+    delta_w = W_held - W_held.shift(1)
+    turnover = delta_w.abs().sum(axis=1)
+    buy_turnover = delta_w.clip(lower=0.0).sum(axis=1)
+    sell_turnover = (-delta_w).clip(lower=0.0).sum(axis=1)
+    port_ret = port_gross - buy_turnover * buy_cost - sell_turnover * sell_cost
 
     # 丢弃建仓爬坡期
     port_ret = port_ret.iloc[hold_days:].dropna()
@@ -214,8 +234,10 @@ def build_portfolio_naive(
     """⚠️ 错误的旧实现，仅供「方法论修正」章节对比展示，禁止用于生产结论。
 
     对"信号收益序列"做 rolling(hold_days).mean() → 移动平均平滑 → 夏普虚高 √hold_days 倍。
+    收益定义已统一为 pct_change（2026-09），使 naive vs correct 的差异纯粹来自平滑陷阱，
+    不混入收益口径差异。
     """
-    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    daily_ret = close_matrix.pct_change()
     common_dates = pred_df.index.intersection(daily_ret.index)
     common_cols = pred_df.columns.intersection(daily_ret.columns)
     p = pred_df.loc[common_dates, common_cols]
@@ -353,7 +375,7 @@ def plot_results(results: dict, boot_dist: dict):
     for name, df in results.items():
         ax.plot(df.index, df["cum"], label=name, linewidth=1.2)
     ax.axhline(1.0, color="black", linewidth=0.5)
-    ax.set_title("累计净值对比（扣 0.3% 双边成本）")
+    ax.set_title("累计净值对比（扣 0.1% 双边成本）")
     ax.set_ylabel("净值")
     ax.legend(loc="upper left")
     ax.grid(True, alpha=0.3)
@@ -415,10 +437,10 @@ def main():
     pred_lgb, alpha001, close_matrix, market_ret, market_vol, X_long = load_data()
 
     # ── 组合构建 ──
-    print("\n构建组合（双边成本 0.3%）...")
-    lgb_ls = build_portfolio(pred_lgb, close_matrix, long_only=False, cost=COST_BPS)
-    lgb_lo = build_portfolio(pred_lgb, close_matrix, long_only=True, cost=COST_BPS)
-    a001_ls = build_portfolio(alpha001, close_matrix, long_only=False, cost=COST_BPS)
+    print("\n构建组合（铁律成本：买 0.026% / 卖 0.076%）...")
+    lgb_ls = build_portfolio(pred_lgb, close_matrix, long_only=False)
+    lgb_lo = build_portfolio(pred_lgb, close_matrix, long_only=True)
+    a001_ls = build_portfolio(alpha001, close_matrix, long_only=False)
 
     # 市场基准净值
     market_cum = (1 + market_ret.fillna(0)).cumprod()

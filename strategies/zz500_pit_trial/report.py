@@ -83,7 +83,9 @@ FWD_DAYS = 5
 TOP_Q = BOTTOM_Q = 0.20
 N_SPLITS = 5
 PURGE_DAYS = 6
-COST_BPS = 0.003          # 双边千三
+# 成本口径（2026-09 收口）：build_portfolio 默认走方向分离（买 0.026%/卖 0.076%）。
+# COST_BPS 保留仅为向后兼容，新调用不传 cost 直接用默认方向分离口径。
+COST_BPS = 0.00102        # 双边合计铁律 0.1%
 HOLD_GRID = [1, 5, 10, 20]
 WF_TEST_YEARS = list(range(2015, 2026))
 WF_NUM_BOOST = 79
@@ -333,7 +335,7 @@ def backtest(pred_matrix, close_matrix, X_long):
 
     # 市场基准：当日成员等权日收益（无重叠 tranche，直接截面均值）
     member_mask = pd.Series(True, index=X_long.index).unstack(fill_value=False)
-    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    daily_ret = close_matrix.pct_change()
     mask_al = member_mask.reindex_like(daily_ret).fillna(False).astype(bool)
     market_ret = daily_ret.where(mask_al).mean(axis=1).dropna()
     m_mkt = performance_metrics(market_ret)
@@ -341,8 +343,8 @@ def backtest(pred_matrix, close_matrix, X_long):
     # hold 网格（LS + LO），验证夏普对持有期的稳定性
     grid = []
     for h in HOLD_GRID:
-        ls = build_portfolio(pred_matrix, close_matrix, long_only=False, cost=COST_BPS, hold_days=h)
-        lo = build_portfolio(pred_matrix, close_matrix, long_only=True, cost=COST_BPS, hold_days=h)
+        ls = build_portfolio(pred_matrix, close_matrix, long_only=False, hold_days=h)
+        lo = build_portfolio(pred_matrix, close_matrix, long_only=True, hold_days=h)
         m_ls, m_lo = performance_metrics(ls["port_ret"]), performance_metrics(lo["port_ret"])
         grid.append({"hold_days": h, "ls_annual": m_ls["annual"], "ls_sharpe": m_ls["sharpe"],
                      "ls_mdd": m_ls["mdd"], "lo_annual": m_lo["annual"], "lo_sharpe": m_lo["sharpe"],
@@ -354,8 +356,8 @@ def backtest(pred_matrix, close_matrix, X_long):
     print(f"  市场等权: SR={m_mkt['sharpe']:+.3f} ({m_mkt['annual']:+.2%})")
 
     # 主口径 hold=5：Bootstrap 夏普显著性
-    ls5 = build_portfolio(pred_matrix, close_matrix, long_only=False, cost=COST_BPS, hold_days=5)
-    lo5 = build_portfolio(pred_matrix, close_matrix, long_only=True, cost=COST_BPS, hold_days=5)
+    ls5 = build_portfolio(pred_matrix, close_matrix, long_only=False, hold_days=5)
+    lo5 = build_portfolio(pred_matrix, close_matrix, long_only=True, hold_days=5)
     _, p_ls = block_bootstrap_sharpe(ls5["port_ret"])
     _, p_lo = block_bootstrap_sharpe(lo5["port_ret"])
     m_ls5, m_lo5 = performance_metrics(ls5["port_ret"]), performance_metrics(lo5["port_ret"])
@@ -391,7 +393,7 @@ def walk_forward(X_long, close_matrix):
         pred = pred.loc[td, ts]
         if len(td) <= 12:
             continue
-        pf = build_portfolio(pred, close_matrix.loc[td, ts], long_only=False, cost=COST_BPS, hold_days=10)
+        pf = build_portfolio(pred, close_matrix.loc[td, ts], long_only=False, hold_days=10)
         m = performance_metrics(pf["port_ret"])
         yearly.append({"year": year, "annual": m["annual"], "sharpe": m["sharpe"], "mdd": m["mdd"], "n": m["n"]})
         ports.append(pf["port_ret"])
@@ -534,7 +536,7 @@ def walk_forward_pit_select(close_matrix, volume_matrix, member_daily, keep_tens
         ts = pred.columns.intersection(close_matrix.columns)
         pred = pred.loc[td, ts]
 
-        pf = build_portfolio(pred, close_matrix.loc[td, ts], long_only=False, cost=COST_BPS, hold_days=10)
+        pf = build_portfolio(pred, close_matrix.loc[td, ts], long_only=False, hold_days=10)
         m = performance_metrics(pf["port_ret"])
         yearly.append({"year": year, "annual": m["annual"], "sharpe": m["sharpe"],
                        "mdd": m["mdd"], "n": m["n"], "pool_size": len(pool_yr)})

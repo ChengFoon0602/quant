@@ -99,7 +99,7 @@ def _monthly_backtest(pred, close_matrix):
     if len(td) < 20:
         return None, None
     pf = build_portfolio(pred_daily, close_matrix.loc[td, ts],
-                         long_only=False, cost=COST_BPS, hold_days=1)
+                         long_only=False, hold_days=1)
     return pf, pred_daily
 
 

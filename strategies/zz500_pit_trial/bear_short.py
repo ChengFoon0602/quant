@@ -60,7 +60,7 @@ from strategies.feature_selection.build_pit_matrix import load_pit_panel
 from strategies.zz500_pit_trial.neutralize import load_amount_matrix
 from data.zz500_index import load_zz500_index
 
-COST_BPS = 0.003        # 双边交易成本，与全链路一致
+COST_BPS = 0.00102     # 双边合计铁律 0.1%（2026-09 收口）
 HOLD = 10               # 与 WF PIT-Select（SR +2.33 口径）一致
 TOP_Q = 0.20            # 空头腿：截面 bottom 20%
 MA_WIN = 200            # regime 主口径：指数 < MA200
@@ -219,7 +219,7 @@ def index_change_in_window(idx_close: pd.Series, start: str, end: str) -> float:
 def short_pf(pred: pd.DataFrame, close: pd.DataFrame, gate: pd.Series | None,
              position_scale: pd.Series | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """跑空头腿组合，返回 (df, W_held)。gate pre-multiply；position_scale post-multiply。"""
-    df, W = build_portfolio(pred, close, short_only=True, cost=COST_BPS, hold_days=HOLD,
+    df, W = build_portfolio(pred, close, short_only=True, hold_days=HOLD,
                             gate=gate, position_scale=position_scale, return_weights=True)
     return df, W
 

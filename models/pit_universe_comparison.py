@@ -125,14 +125,14 @@ def main():
     close_new = load_close_for(pred_new.columns)
     close_old = load_close_for(pred_old.columns)
 
-    print("重建组合净值 (hold_days=5, 双边 0.3%)...")
+    print("重建组合净值 (hold_days=5, 铁律 0.1% 成本)...")
     # PIT 市场基准用成员掩码（与 portfolio_backtest 一致）；旧 universe 面板=其池子本身，无需掩码
     member_daily_close = None
     curves = {}
     for tag, pred, close in [("PIT", pred_new, close_new), ("旧", pred_old, close_old)]:
-        curves[f"{tag} LS"] = build_portfolio(pred, close, long_only=False, cost=COST_BPS)
-        curves[f"{tag} LO"] = build_portfolio(pred, close, long_only=True, cost=COST_BPS)
-        daily_ret = close.shift(-2) / close.shift(-1) - 1
+        curves[f"{tag} LS"] = build_portfolio(pred, close, long_only=False)
+        curves[f"{tag} LO"] = build_portfolio(pred, close, long_only=True)
+        daily_ret = close.pct_change()
         if tag == "PIT":
             from data.index_membership import expand_to_daily
             member_daily_close = expand_to_daily(membership, close.index).reindex(
