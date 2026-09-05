@@ -24,6 +24,26 @@
   - 卖出：0.076%（佣金 + 印花税 0.05% + 过户费）
   - 合计双边 ≈ 0.1%。滑点另计，日线级别默认加 0.05% 滑点
 - 当前 `backtest/engine.py` 和 `backtest/cross_section.py` 均已实现，新策略必须沿用默认费率参数
+- `risk/portfolio.py::build_weight_portfolio` 支持两种成本口径：`buy_cost`/`sell_cost`（方向分离，默认铁律标准）与 `cost`（双边合计，向后兼容 ETF 等低摩擦资产）。**优先用方向分离口径**，`cost=` 仅用于 ETF/低摩擦场景
+- **收益锚定日约定（全仓库统一，2026-09 确立）**：`pct_change()` 把 t→t+1 收益记在 t+1 日；组合收益 = W[t-1] · daily_ret[t]（t-1 日持仓吃 t→t+1 收益）。任何新回测代码必须沿用此约定，禁止另起炉灶
+
+### 3.5 复权方式选择 (Price Adjustment)
+
+- 前复权（adjust="2"）：历史价随**最新除权事件**回溯调整，**只适合单票时序回测**，会污染截面因子与 ML 训练的时点可比性
+- 后复权（adjust="1"）：历史价相对恒定，**截面比较与因子计算必须用后复权**
+- 不复权（adjust="3"）：真实成交价，需配复权因子表才能算总回报
+- `data/fetcher.py::_cache_path` 已按复权方式区分缓存文件（`{symbol}.csv` 前复权 / `{symbol}_adj{adjust}.csv` 其余），避免互相覆盖
+
+### 3.6 数据可复现性 (Data Manifest)
+
+- `data/manifest.py` 生成 `data/manifest.json`，记录缓存文件的行数/日期范围/抓取时间/sha256，作为数据层快照锚点（纳入 git）
+- 数据增量更新后，运行 `python data/manifest.py` 重建清单并 commit，使「数据变了」可追溯
+- 校验：`from data.manifest import verify_manifest; verify_manifest()` 返回 `drifted`/`missing`/`new` 列表
+
+### 3.7 随机种子约定 (Reproducibility)
+
+- 凡涉及随机性的代码（Bootstrap、合成数据、shuffle），必须显式传入 `seed`，禁止依赖全局 `np.random.seed()` 隐式状态
+- 已固化种子：`risk/portfolio.py::bootstrap_sharpe_test` 默认 `seed=42`；`tests/factor_golden_baseline.py` 合成面板 `seed=42`
 
 ### 4. 因子合成：基线→正交化→非线性
 
@@ -197,3 +217,15 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
 - 回测不含幸存者偏差——至少要在报告中标注此风险
 - 禁止为了拟合结果而调整回测参数——如果基线不 work，诚实报告
 - 外部点评/审阅意见（含其他 AI 给出的"发现的问题"）必须先核实技术前提是否匹配实际代码——grep 关键字、读源码确认claim 成立，再决定要不要改数字或结论。曾出现点评声称"数据是周频、sqrt(252)用错"，实际全仓库查无此代码，前提完全不成立的情况（见 `strategies/factor_discovery/report.md` 第 7 节）
+
+## 待论证议题（TODO）
+
+> 以下议题已识别但**暂未改动代码**，需单独论证后才实施（涉及会改变历史报告结论的改动）：
+
+1. **`models/portfolio_backtest.py::build_portfolio` 的错位收益**：
+   该函数（被几乎所有截面/ML 策略脚本调用）使用 `daily_ret = close.shift(-2)/close.shift(-1)-1`，
+   即「t+1→t+2 收益记在 t 日」，配合 `W_lag = W_held.shift(1)` 导致时序错配。
+   需单独论证：这是作者有意的「信号日收盘→次日开盘买→隔日卖」单日持有近似，还是真实未来函数？
+   论证文档见 `docs/收益成本口径统一论证.md`。在结论明确前，**不得**擅自修改该函数及重跑受影响报告。
+2. **成本口径三套并存的收口**：`engine.py`（买/卖分离）、`cross_section.py`（买/卖分离）、
+   `models/portfolio_backtest.py`（cost/2 对半）三处口径不统一，需随议题 1 一并收口。
