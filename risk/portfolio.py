@@ -20,12 +20,25 @@ def detect_limit_moves(
     high_matrix: pd.DataFrame,
     low_matrix: pd.DataFrame,
     pre_close_matrix: pd.DataFrame,
+    st_symbols: Optional[set] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """根据开高低收和昨收价，检测全市场标的是否处于一字涨停（禁买）或一字跌停（禁卖）状态。
 
     A 股涨跌停规则适配：
-      - 30 / 68 开头：20% 涨跌停
-      - 其余主板股票：10% 涨跌停
+      - 30 / 68 开头（创业板/科创板）：20% 涨跌停
+      - 8 / 4 开头（北交所）：30% 涨跌停
+      - ST / *ST 股（通过 st_symbols 传入）：5% 涨跌停
+      - 其余主板：10% 涨跌停
+
+    ⚠️ 已知简化（未建模）：
+      - 创业板/科创板新股上市前 5 个交易日无涨跌停限制；
+      - 北交所新股上市首日无涨跌停限制。
+      这两类需要在更高层用「上市日 + 前 5 日」元数据单独豁免。
+
+    Parameters
+    ----------
+    st_symbols : Optional[set]
+        ST / *ST 股票的 symbol 集合。传入后这些股票按 5% 涨跌停处理。
 
     Returns
     -------
@@ -34,8 +47,15 @@ def detect_limit_moves(
     """
     limit_pct = pd.Series(0.10, index=open_matrix.columns)
     for col in open_matrix.columns:
-        if str(col).startswith(("30", "68")):
+        s = str(col)
+        if s.startswith(("30", "68")):
             limit_pct[col] = 0.20
+        elif s.startswith(("8", "4")):
+            limit_pct[col] = 0.30
+    if st_symbols:
+        for sym in st_symbols:
+            if sym in limit_pct.index:
+                limit_pct[sym] = 0.05
 
     # 近似涨跌停价（A 股四舍五入到分位）
     limit_up = (pre_close_matrix * (1.0 + limit_pct)).round(2)
@@ -56,7 +76,9 @@ def build_weight_portfolio(
     short_only: bool = False,
     top_q: float = 0.20,
     bottom_q: float = 0.20,
-    cost: float = 0.003,
+    cost: Optional[float] = None,
+    buy_cost: float = 0.00026,
+    sell_cost: float = 0.00076,
     hold_days: int = 5,
     position_scale: Optional[pd.Series] = None,
     gate: Optional[pd.Series] = None,
@@ -79,8 +101,14 @@ def build_weight_portfolio(
         多头分位数阈值（默认前 20%）。
     bottom_q : float, default 0.20
         空头分位数阈值（默认后 20%）。
-    cost : float, default 0.003
-        双边交易成本与滑点（例如 0.003 表示买入+卖出合计千分之三）。
+    cost : Optional[float], default None
+        双边合计成本（买入+卖出），向后兼容 ETF 等低摩擦资产场景。
+        若显式传入，则 buy_cost = sell_cost = cost / 2（对半拆）。
+        为 None 时使用下方 buy_cost/sell_cost 方向分离口径。
+    buy_cost : float, default 0.00026
+        买入单边费率（佣金万 2.5 + 过户费），与铁律第 3 条一致。
+    sell_cost : float, default 0.00076
+        卖出单边费率（佣金 + 印花税 0.05% + 过户费），与铁律第 3 条一致。
     hold_days : int, default 5
         持有天数（tranche 数量）。
     position_scale : Optional[pd.Series], default None
@@ -95,7 +123,14 @@ def build_weight_portfolio(
     if long_only and short_only:
         raise ValueError("long_only 与 short_only 互斥，不能同时为 True")
 
-    daily_ret = close_matrix.shift(-2) / close_matrix.shift(-1) - 1
+    # 成本口径归一：cost 为 None 时用方向分离；否则对半拆（向后兼容 ETF 等低摩擦场景）
+    if cost is not None:
+        buy_cost = cost / 2.0
+        sell_cost = cost / 2.0
+
+    # 收益锚定日约定（全仓库统一）：t→t+1 收益记在 t+1 日。
+    # 因此 daily_ret[t] = close[t] / close[t-1] - 1，与 engine.py / cross_section.py / labels.py 的 pct_change() 语义一致。
+    daily_ret = close_matrix.pct_change()
 
     common_dates = pred_df.index.intersection(daily_ret.index).sort_values()
     common_cols = pred_df.columns.intersection(daily_ret.columns).sort_values()
@@ -167,9 +202,13 @@ def build_weight_portfolio(
     W_lag = W_held.shift(1).fillna(0.0)
     gross_ret = (W_lag * r).sum(axis=1)
 
-    # 4. 换手成本
-    turnover = (W_held - W_held.shift(1).fillna(0.0)).abs().sum(axis=1)
-    cost_deduction = turnover * (cost / 2.0)
+    # 4. 换手成本：区分买入/卖出方向，与铁律第 3 条（买 0.026% / 卖 0.076%）一致
+    delta_w = W_held - W_held.shift(1).fillna(0.0)
+    turnover = delta_w.abs().sum(axis=1)
+    # 买入换手 = 增仓部分，卖出换手 = 减仓部分（多空对称，各占 |ΔW| 的一半）
+    buy_turnover = delta_w.clip(lower=0.0).sum(axis=1)
+    sell_turnover = (-delta_w).clip(lower=0.0).sum(axis=1)
+    cost_deduction = buy_turnover * buy_cost + sell_turnover * sell_cost
     port_ret = gross_ret - cost_deduction
 
     # 丢弃建仓爬坡期

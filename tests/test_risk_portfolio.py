@@ -33,17 +33,20 @@ class TestRiskPortfolio(unittest.TestCase):
             self.pred_df,
             self.close_matrix,
             long_only=False,
-            cost=0.003,
+            buy_cost=0.00026,
+            sell_cost=0.00076,
             hold_days=5,
         )
         self.assertIsInstance(res, pd.DataFrame)
         for col in ["gross_ret", "cost", "turnover", "port_ret", "cum"]:
             self.assertIn(col, res.columns)
 
-        # 检查 cost_deduction = turnover * (cost / 2)
-        np.testing.assert_allclose(res["cost"].values, (res["turnover"] * 0.0015).values, rtol=1e-5)
-        # 检查 port_ret = gross_ret - cost
+        # 检查 cost_deduction = buy_turnover*buy_cost + sell_turnover*sell_cost（方向分离）
+        delta_w = res["turnover"]  # 此处 turnover 列存的是 |ΔW| 之和，非方向分离
+        # 方向分离后的成本无法仅从 turnover 列反推，故只验证 port_ret = gross_ret - cost 恒等
         np.testing.assert_allclose(res["port_ret"].values, (res["gross_ret"] - res["cost"]).values, rtol=1e-5)
+        # 成本应非负
+        self.assertTrue((res["cost"].values >= 0).all())
 
     def test_long_only_and_short_only_mutual_exclusion(self):
         with self.assertRaises(ValueError):

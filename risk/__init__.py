@@ -10,6 +10,8 @@ from risk.portfolio import (
     bootstrap_sharpe_test,
 )
 
+from risk.orchestrator import PortfolioOrchestrator
+
 from risk.crowding import (
     month_end_dates,
     wide_to_long,
@@ -30,6 +32,7 @@ __all__ = [
     "apply_volatility_target",
     "calculate_metrics",
     "bootstrap_sharpe_test",
+    "PortfolioOrchestrator",
     "month_end_dates",
     "wide_to_long",
     "align_direction",
