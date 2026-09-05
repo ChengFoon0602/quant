@@ -331,7 +331,7 @@ def train_cv(X_long, close_matrix):
 
 def backtest(pred_matrix, close_matrix, X_long):
     """组合回测：hold 网格 + LS/LO/市场基准 + Bootstrap 夏普。"""
-    section("组合回测：hold 网格 + LS/LO + 市场基准（双边 0.3% 成本）")
+    section("组合回测：hold 网格 + LS/LO + 市场基准（铁律 0.1% 成本，买/卖分离）")
 
     # 市场基准：当日成员等权日收益（无重叠 tranche，直接截面均值）
     member_mask = pd.Series(True, index=X_long.index).unstack(fill_value=False)
@@ -639,7 +639,7 @@ def plot_backtest(bt, wf_yearly, wf_all, m_wf):
     ax.plot(bt["lo5"]["cum"], label=f"LO (SR={bt['m_lo5']['sharpe']:.2f})", color="#2ca02c")
     mkt_cum = (1 + bt["market_ret"].fillna(0)).cumprod()
     ax.plot(mkt_cum, label=f"市场 (SR={bt['m_mkt']['sharpe']:.2f})", color="gray", alpha=0.7)
-    ax.axhline(1, color="black", lw=0.5); ax.set_title("累计净值 hold=5（扣 0.3% 成本）")
+    ax.axhline(1, color="black", lw=0.5); ax.set_title("累计净值 hold=5（铁律 0.1% 成本）")
     ax.legend(fontsize=8); ax.grid(alpha=0.3)
 
     ax = axes[0, 1]  # hold 网格夏普
