@@ -1,0 +1,26 @@
+# quant 量化框架依赖清单（版本锁定）
+#
+# 目的：保证回测结果可复现（铁律：给定相同数据和参数，两次运行输出完全一致）。
+# 依赖版本来自 2026-09 实测环境的 pin，升级前请先跑 tests/factor_golden_baseline.py
+# 和 tests/test_methodology.py 确认无数值回归。
+#
+# 安装：pip install -r requirements.txt
+#
+# 注意：baostock / akshare 为国内数据源，版本更新频繁，若拉取接口变动，
+# 需同步检查 data/fetcher.py 的解析逻辑。
+
+# ── 数据源 ──────────────────────────────
+baostock==0.9.3
+akshare==1.18.73
+
+# ── 数值与科学计算 ──────────────────────
+numpy==2.1.3
+pandas==2.3.3
+scipy==1.16.3
+
+# ── 可视化 ──────────────────────────────
+matplotlib==3.9.2
+
+# ── 机器学习 ────────────────────────────
+lightgbm==4.7.0
+scikit-learn==1.9.0
