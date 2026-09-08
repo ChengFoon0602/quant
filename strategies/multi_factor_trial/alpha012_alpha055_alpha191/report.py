@@ -23,6 +23,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 from data.fetcher import load_daily, cache_summary
 from signals.alpha191.calculator import compute_factor_matrix
 from backtest.cross_section import run_cross_section
+from signals.orthogonalize import cross_sectional_orthogonalize
 
 REPORT_DIR = "figures"
 os.makedirs(REPORT_DIR, exist_ok=True)
@@ -113,7 +114,7 @@ section("数据质量自检")
 aligned = []
 for fid in ALL_IDS:
     ok = close_matrix.index.equals(factor_tensor[fid].index)
-    aligned.append(f"{fid}={chr(10003) if ok else chr(10007)}")
+    aligned.append(f"{fid}={'[OK]' if ok else '[FAIL]'}")
 print(f"  1. 时序对齐: {', '.join(aligned)}")
 print(f"  2. Universe: 最新 CSI 300 成分股（{N_SYMBOLS} 只）→ ⚠ 含幸存者偏差 (已量化, §10)")
 n_nan_ret = daily_ret.isna().sum().sum()
@@ -343,16 +344,9 @@ ortho_factors_pure = {base_fid_pure: zscore_factors[base_fid_pure]}
 for fid in purified_ids:
     if fid == base_fid_pure:
         continue
-    residuals = pd.DataFrame(0.0, index=common_dates, columns=common_syms)
-    for d in common_dates:
-        y = zscore_factors[fid].loc[d]
-        x = zscore_factors[base_fid_pure].loc[d]
-        mask = y.notna() & x.notna()
-        if mask.sum() < 20:
-            residuals.loc[d] = y.fillna(0)
-            continue
-        beta = np.polyfit(x[mask].values, y[mask].values, 1)[0]
-        residuals.loc[d, mask] = y[mask] - beta * x[mask]
+    # 使用新引入的截面正交化引擎
+    base_dict = {base_fid_pure: zscore_factors[base_fid_pure]}
+    residuals = cross_sectional_orthogonalize(zscore_factors[fid], base_dict)
     ortho_factors_pure[fid] = residuals
 
 combo_ortho_pure = pd.DataFrame(0.0, index=common_dates, columns=common_syms)
@@ -520,17 +514,8 @@ combo_train_ortho_pure = combo_train_ortho_pure / N_PURIFIED
 test_ortho_factors_pure = {base_fid_pure: test_z_pure[base_fid_pure]}
 for fid in purified_ids:
     if fid == base_fid_pure: continue
-    test_res = pd.DataFrame(0.0, index=close_test.index, columns=common_syms)
-    for d in close_test.index:
-        if d not in test_z_pure[fid].index or d not in test_z_pure[base_fid_pure].index: continue
-        y = test_z_pure[fid].loc[d]
-        x = test_z_pure[base_fid_pure].loc[d]
-        mask = y.notna() & x.notna()
-        if mask.sum() < 20:
-            test_res.loc[d] = y.fillna(0)
-            continue
-        beta = np.polyfit(x[mask].values, y[mask].values, 1)[0]
-        test_res.loc[d, mask] = y[mask] - beta * x[mask]
+    base_dict = {base_fid_pure: test_z_pure[base_fid_pure]}
+    test_res = cross_sectional_orthogonalize(test_z_pure[fid], base_dict)
     test_ortho_factors_pure[fid] = test_res
 combo_test_ortho_pure = pd.DataFrame(0.0, index=close_test.index, columns=common_syms)
 for fid in purified_ids:
