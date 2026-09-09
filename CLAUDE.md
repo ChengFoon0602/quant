@@ -24,6 +24,12 @@
   - 卖出：0.076%（佣金 + 印花税 0.05% + 过户费）
   - 合计双边 ≈ 0.1%。滑点另计，日线级别默认加 0.05% 滑点
 - 当前 `backtest/engine.py` 和 `backtest/cross_section.py` 均已实现，新策略必须沿用默认费率参数
+- **单一真源（2026-09-09 建立）**：`risk/cost_model.py` 定义 `BUY_COST` / `SELL_COST` / `ROUND_TRIP` /
+  `CostModel`。**新回测代码必须 import 该模块，禁止再写字面量**。
+  `tests/test_cost_model.py` 用 `inspect` 读取 8 处硬编码默认值并断言等于真源，任何漂移立即失败
+- ⚠️ **历史教训**：`tests/test_methodology.py::TestFrictionCost` 是**空转测试**——它在函数体内
+  自己声明 `buy_cost, sell_cost = 0.00026, 0.00076`，只验证了加法算术，从未 import 任何模块默认值。
+  因此 `COST_BPS=0.003`（铁律 3 倍）能在测试全绿下存活并污染结论。**测试必须断言真实代码，不能断言自己写的常量**
 - `risk/portfolio.py::build_weight_portfolio` 支持两种成本口径：`buy_cost`/`sell_cost`（方向分离，默认铁律标准）与 `cost`（双边合计，向后兼容 ETF 等低摩擦资产）。**优先用方向分离口径**，`cost=` 仅用于 ETF/低摩擦场景
 - **收益锚定日约定（全仓库统一，2026-09 确立）**：`pct_change()` 把 t→t+1 收益记在 t+1 日；组合收益 = W[t-1] · daily_ret[t]（t-1 日持仓吃 t→t+1 收益）。任何新回测代码必须沿用此约定，禁止另起炉灶
 
@@ -220,16 +226,35 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
 
 ## 待论证议题（TODO）
 
-> 以下议题已识别但**暂未改动代码**，需单独论证后才实施（涉及会改变历史报告结论的改动）：
+### ✅ 已收口（2026-09-05，commits `63a2b27`/`22ecbad`/`cbc7e4e`）
 
-1. **`models/portfolio_backtest.py::build_portfolio` 的错位收益**：
-   该函数（被几乎所有截面/ML 策略脚本调用）使用 `daily_ret = close.shift(-2)/close.shift(-1)-1`，
-   即「t+1→t+2 收益记在 t 日」，配合 `W_lag = W_held.shift(1)`。
-   **定性（2026-09-05 经逐日推演+数值实验确认）**：非未来函数，而是「信号延迟错配」——
-   信号到收益隔 2 天空窗，导致动量类 alpha 被系统性低估约 10%（方向保守，不虚高）。
-   论证文档见 `docs/收益成本口径统一论证.md`。收口前需重跑受影响报告（models/、zz500_pit、zz500_fundamental）对比新旧 SR。
-2. **成本口径三套并存的收口**：`engine.py`（买/卖分离）、`cross_section.py`（买/卖分离）、
-   `models/portfolio_backtest.py`（cost/2 对半，且 COST_BPS=0.003 是铁律 0.1% 的 3 倍）三处口径不统一。
-   **真实数据对照（2026-09-05 实测，790 只×3886 日）**：收口后 LS 夏普 0.036→1.175（成本是主导因素，
-   多空两端换手被 0.3% 成本压死）、LO 1.187→1.613。**旧口径的「多空 alpha 不成立」是被「过高成本+收益错位」
-   双重 bug 压出来的错误结论，收口后 LS 结论反转**。需重跑 models/、zz500_pit、zz500_fundamental 三份报告更新结论。
+1. ~~**`build_portfolio` 的错位收益**~~ ✅ **已解决**。
+   定性：非未来函数，而是「信号延迟错配」（动量类 alpha 被低估约 10%，方向保守）。
+   已统一为 `pct_change()`（t→t+1 收益记 t+1 日），论证文档见 `docs/收益成本口径统一论证.md`。
+2. ~~**成本口径三套并存的收口**~~ ✅ **已解决**。
+   `COST_BPS = 0.003`（铁律 3 倍）已收口为 0.00102，成本改为买/卖方向分离。
+   真实数据对照（790 只 × 3886 日）：LS 夏普 0.036→**1.175**、LO 1.187→**1.613**；
+   中证 500 去 bias LS −0.188→**+1.214**、LO 0.248→**0.600**。
+   三份报告（models / zz500_pit_trial / zz500_fundamental_trial）结论已更新。
+   **遗留**：`models/nn_trainer.py:236,258` 仍用 `cost=0.003`，但该脚本属已标注作废的
+   旧 universe 遗留物（`models/report.md:754,862`），不污染结论。
+
+### ⏳ 待实施（跨文件改动，需先呈送 Implementation Plan 审批）
+
+3. **年化口径三套不一致**：
+   `models/portfolio_backtest.py::performance_metrics` 用 `(1+ret.mean())**252-1`（复利式）、
+   `risk/portfolio.py::calculate_metrics` 用 `daily_mean*252`（算术式）、
+   `backtest/engine.py:54` 用 `(1+total)**(1/n_years)-1`（CAGR）。高波动时差异可达数十 bp。
+4. **成本参数仍有 8 处硬编码**：真源已建（`risk/cost_model.py`）+ 守护测试已就位
+   （`tests/test_cost_model.py`），但 8 处调用点尚未改为 import 真源。
+5. **核心回测逐日 Python 循环**：`models/portfolio_backtest.py:171,247`、`risk/portfolio.py:145`
+   违反铁律「向量化优先」。实测（3886 日 × 1326 股）向量化可加速 **27×** 且结果逐位等价。
+6. **可观测性**：113 个 py 文件仅 1 个用 `logging`，全仓 1178 处 `print()`。
+7. **昨日新增模块未完全接入**（commit `c725602`）：`backtest/ic_evaluator.py`、
+   `signals/alpha191_ext.py` 零引用；`data/pit_auditor.py` 未接入 `zz500_fundamental_trial`
+   的 PIT 对齐链路（而该链路报告明确写了「从公告日退化为法定截止日」——正是最该审计的场景）。
+8. **`alpha191_ext` 算子性能**：`rolling().apply()` 是 Python 逐窗口回调，
+   实测 1000×300 需 2.5s（ts_argmax），真实规模 3886×1624 约 13s/算子。
+   与 `CLAUDE_AGENT_SOP.md` 自订的「严禁 for 循环」精神冲突。
+9. **`CLAUDE_AGENT_SOP.md:28` 判定阈值存在灰色地带**：死亡 `<1.0`、存活 `>1.5`，
+   1.0~1.5 区间未定义；且 SOP 引用的 `signals/auto_mined_alpha.py` 文件不存在。
