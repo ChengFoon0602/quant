@@ -241,10 +241,12 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
 
 ### ⏳ 待实施（跨文件改动，需先呈送 Implementation Plan 审批）
 
-3. **年化口径三套不一致**：
-   `models/portfolio_backtest.py::performance_metrics` 用 `(1+ret.mean())**252-1`（复利式）、
-   `risk/portfolio.py::calculate_metrics` 用 `daily_mean*252`（算术式）、
-   `backtest/engine.py:54` 用 `(1+total)**(1/n_years)-1`（CAGR）。高波动时差异可达数十 bp。
+3. ~~**年化口径三套不一致**~~ ✅ **已收口（2026-09-09）**：
+   `models/portfolio_backtest.py::performance_metrics`（原 `(1+mean)**252-1`）与
+   `risk/portfolio.py::calculate_metrics`（原 `daily_mean*252` 算术式）已统一为**路径 CAGR**，
+   规范函数见 `backtest/metrics.py::annualize_cagr`。`engine.py` 本就是 CAGR，未动。
+   Sharpe 口径未变（mean/std*sqrt(252)），仅「年化收益」展示列变化，不影响任何结论判断。
+   算术年化保留在 `annual_arith` / `annual_return_arith` 键供 AM-GM 对照。
 4. **成本参数仍有 8 处硬编码**：真源已建（`risk/cost_model.py`）+ 守护测试已就位
    （`tests/test_cost_model.py`），但 8 处调用点尚未改为 import 真源。
 5. **核心回测逐日 Python 循环**：`models/portfolio_backtest.py:171,247`、`risk/portfolio.py:145`

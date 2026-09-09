@@ -292,11 +292,18 @@ def apply_volatility_target(
 
 
 def calculate_metrics(ret_series: pd.Series, rf: float = 0.0) -> Dict[str, float]:
-    """计算标准投资组合绩效指标。"""
+    """计算标准投资组合绩效指标。
+
+    2026-09-09 口径统一（CLAUDE.md TODO #3）：`annual_return` 从算术年化
+    （mean*252）改为**路径 CAGR**（真实复利，见 backtest/metrics.py）。
+    算术年化保留在 `annual_return_arith` 键。Sharpe 始终由日收益矩计算
+    （= mean/std*sqrt(252)，与 rf 无关的部分保持一致），数值不因此改动。
+    """
     s = ret_series.dropna()
     if len(s) < 2:
         return {
             "annual_return": 0.0,
+            "annual_return_arith": 0.0,
             "annual_vol": 0.0,
             "sharpe": 0.0,
             "max_drawdown": 0.0,
@@ -307,12 +314,20 @@ def calculate_metrics(ret_series: pd.Series, rf: float = 0.0) -> Dict[str, float
             "n_days": len(s),
         }
 
+    from backtest.metrics import annualize_arithmetic, annualize_cagr
+
     daily_mean = s.mean()
     daily_std = s.std()
 
-    annual_return = daily_mean * 252.0
+    annual_return = annualize_cagr(s)          # 几何年化 CAGR
+    annual_return_arith = annualize_arithmetic(s)  # 算术年化（对照）
     annual_vol = daily_std * np.sqrt(252.0)
-    sharpe = (annual_return - rf) / annual_vol if annual_vol > 1e-8 else 0.0
+    # Sharpe：由日收益矩计算，与旧口径 (mean*252-rf)/(std*sqrt252) 完全等价
+    sharpe = (
+        (daily_mean - rf / 252.0) / daily_std * np.sqrt(252.0)
+        if daily_std > 1e-8
+        else 0.0
+    )
 
     cum = (1.0 + s).cumprod()
     peak = cum.cummax()
@@ -330,7 +345,8 @@ def calculate_metrics(ret_series: pd.Series, rf: float = 0.0) -> Dict[str, float
     ac1 = float(s.autocorr(lag=1)) if len(s) > 2 else 0.0
 
     return {
-        "annual_return": float(annual_return),
+        "annual_return": float(annual_return),        # 几何年化 CAGR
+        "annual_return_arith": float(annual_return_arith),  # 算术年化（对照）
         "annual_vol": float(annual_vol),
         "sharpe": float(sharpe),
         "max_drawdown": max_drawdown,

@@ -269,14 +269,23 @@ def build_portfolio_naive(
 
 
 def performance_metrics(ret_series: pd.Series) -> dict:
+    """组合绩效指标（2026-09-09 统一：annual = 路径 CAGR，见 backtest/metrics.py）。"""
     ret = ret_series.dropna()
     if len(ret) == 0:
         return {"annual": 0.0, "sharpe": 0.0, "mdd": 0.0, "n": 0}
-    ann = (1 + ret.mean()) ** 252 - 1
+    from backtest.metrics import annualize_arithmetic, annualize_cagr
+
+    annual = annualize_cagr(ret)
     sharpe = ret.mean() / ret.std() * np.sqrt(252) if ret.std() > 0 else 0.0
     cum = (1 + ret).cumprod()
     dd = (cum - cum.cummax()) / cum.cummax()
-    return {"annual": ann, "sharpe": sharpe, "mdd": dd.min(), "n": len(ret)}
+    return {
+        "annual": annual,                      # 几何年化 CAGR（真实复利）
+        "annual_arith": annualize_arithmetic(ret),  # 算术年化（AM-GM 对照）
+        "sharpe": sharpe,
+        "mdd": dd.min(),
+        "n": len(ret),
+    }
 
 
 def block_bootstrap_sharpe(ret_series: pd.Series, n_boot: int = N_BOOT, block_size: int = BLOCK_SIZE) -> tuple:
