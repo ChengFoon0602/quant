@@ -15,12 +15,14 @@ A 股交易成本（2026 年标准）：
 import numpy as np
 import pandas as pd
 
+from risk.cost_model import BUY_COST, SELL_COST  # 费率单一真源（2026-09-09 迁移）
+
 
 def run(
     close: pd.Series,
     signal: pd.Series,
-    buy_cost: float = 0.00026,
-    sell_cost: float = 0.00076,
+    buy_cost: float = BUY_COST,
+    sell_cost: float = SELL_COST,
 ) -> dict:
     """向量化单票回测。
 

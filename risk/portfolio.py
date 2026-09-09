@@ -14,6 +14,8 @@ from typing import Tuple, Dict, Any, Optional
 import numpy as np
 import pandas as pd
 
+from risk.cost_model import BUY_COST, SELL_COST  # 费率单一真源（2026-09-09 迁移）
+
 
 def detect_limit_moves(
     open_matrix: pd.DataFrame,
@@ -77,8 +79,8 @@ def build_weight_portfolio(
     top_q: float = 0.20,
     bottom_q: float = 0.20,
     cost: Optional[float] = None,
-    buy_cost: float = 0.00026,
-    sell_cost: float = 0.00076,
+    buy_cost: float = BUY_COST,
+    sell_cost: float = SELL_COST,
     hold_days: int = 5,
     position_scale: Optional[pd.Series] = None,
     gate: Optional[pd.Series] = None,

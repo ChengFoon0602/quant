@@ -32,7 +32,9 @@ from models.portfolio_backtest import load_data, build_portfolio, performance_me
 MODEL_DIR = Path(__file__).parent
 FIGURES_DIR = MODEL_DIR / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
-COST = 0.003
+from risk.cost_model import ROUND_TRIP  # noqa: E402
+
+COST = ROUND_TRIP  # 双边合计 0.102%（2026-09-09 修正：原 0.003 是铁律的 3 倍）
 
 
 def main():

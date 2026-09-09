@@ -115,6 +115,25 @@ class TestCostSingleSource(unittest.TestCase):
         self.assertAlmostEqual(pb.BUY_COST, BUY_COST, places=8)
         self.assertAlmostEqual(pb.SELL_COST, SELL_COST, places=8)
 
+    def test_explicit_roundtrip_call_sites(self):
+        """显式传 cost= 的隐藏调用点也必须等于双边合计。
+
+        2026-09-09 修正：walk_forward / methodology_correction / execution_optimization
+        曾显式传 cost=0.003（铁律 3 倍）绕过了默认值修正——这类调用点光靠默认值守护抓不到。
+        """
+        import importlib
+
+        for mod_name in [
+            "models.walk_forward",
+            "models.methodology_correction",
+            "models.execution_optimization",
+        ]:
+            mod = importlib.import_module(mod_name)
+            self.assertAlmostEqual(
+                mod.COST, ROUND_TRIP, places=8,
+                msg=f"{mod_name}.COST 不等于双边合计 0.102%（曾为 0.003，铁律 3 倍）",
+            )
+
     def test_evaluate_module_constants(self):
         """models/evaluate.py:25-28"""
         from models import evaluate

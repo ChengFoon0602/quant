@@ -47,9 +47,10 @@ TOP_Q = 0.20
 BOTTOM_Q = 0.20
 # 成本口径（2026-09 修正）：默认走方向分离 buy_cost/sell_cost（铁律 0.1%）。
 # COST_BPS 仅作向后兼容的「双边合计」常量保留，新代码不再使用。
-COST_BPS = 0.00102  # 双边合计 ≈ 0.1%（买 0.026% + 卖 0.076%）
-BUY_COST = 0.00026
-SELL_COST = 0.00076
+# 费率单一真源见 risk/cost_model.py（2026-09-09 迁移），本文件不再写字面量。
+from risk.cost_model import BUY_COST, ROUND_TRIP, SELL_COST  # noqa: E402
+
+COST_BPS = ROUND_TRIP  # 双边合计 ≈ 0.102%（买 0.026% + 卖 0.076%）
 FWD_DAYS = 5
 N_BOOT = 10000
 BLOCK_SIZE = 20
@@ -114,8 +115,8 @@ def build_portfolio(
     top_q: float = TOP_Q,
     bottom_q: float = BOTTOM_Q,
     cost: float | None = None,
-    buy_cost: float = 0.00026,
-    sell_cost: float = 0.00076,
+    buy_cost: float = BUY_COST,
+    sell_cost: float = SELL_COST,
     hold_days: int = 5,
     position_scale: pd.Series | None = None,
     gate: pd.Series | None = None,

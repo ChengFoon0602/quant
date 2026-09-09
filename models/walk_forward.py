@@ -48,7 +48,9 @@ MODEL_DIR = Path(__file__).parent
 FIGURES_DIR = MODEL_DIR / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
 NUM_BOOST = 79  # CV 平均最佳迭代
-COST = 0.003
+from risk.cost_model import ROUND_TRIP  # noqa: E402
+
+COST = ROUND_TRIP  # 双边合计 0.102%（2026-09-09 修正：原 0.003 是铁律的 3 倍）
 HOLD_DAYS = 10
 TOP_Q, BOTTOM_Q = 0.2, 0.2
 

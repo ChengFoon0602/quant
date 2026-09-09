@@ -17,6 +17,8 @@ rb_date 当天仍持有旧仓位，新权重从 > rb_date 开始生效。
 import numpy as np
 import pandas as pd
 
+from risk.cost_model import BUY_COST, SELL_COST  # 费率单一真源（2026-09-09 迁移）
+
 
 def run_cross_section(
     close_matrix: pd.DataFrame,
@@ -24,8 +26,8 @@ def run_cross_section(
     top_pct: float = 0.2,
     bottom_pct: float | None = None,
     rebalance: str = "monthly",
-    buy_cost: float = 0.00026,
-    sell_cost: float = 0.00076,
+    buy_cost: float = BUY_COST,
+    sell_cost: float = SELL_COST,
     universe: pd.DataFrame | None = None,
     delist_info: dict | None = None,
 ) -> dict:

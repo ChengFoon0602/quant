@@ -21,12 +21,15 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 
-# 项目默认费率：买入 0.026%，卖出 0.076%，双边合计 ≈0.1%。滑点默认 0.05%。
-COST_LONG_OPEN = 0.00026   # 买入佣金 + 过户费
-COST_LONG_CLOSE = 0.00076  # 卖出佣金 + 印花税 + 过户费
-COST_SHORT_OPEN = 0.00026  # 做空开仓（这里简化为股票借贷成本≈0）
-COST_SHORT_CLOSE = 0.00076
-SLIPPAGE = 0.0005
+from risk.cost_model import BUY_COST, SELL_COST, SLIPPAGE as _SLIPPAGE_CANONICAL  # noqa: E402
+
+# 项目默认费率（单一真源 risk/cost_model.py，2026-09-09 迁移）。
+# 买入 0.026%，卖出 0.076%，双边合计 ≈0.1%。滑点默认 0.05%。
+COST_LONG_OPEN = BUY_COST     # 买入佣金 + 过户费
+COST_LONG_CLOSE = SELL_COST   # 卖出佣金 + 印花税 + 过户费
+COST_SHORT_OPEN = BUY_COST    # 做空开仓（这里简化为股票借贷成本≈0）
+COST_SHORT_CLOSE = SELL_COST
+SLIPPAGE = _SLIPPAGE_CANONICAL
 
 
 def compute_daily_rank_ic(pred_df: pd.DataFrame, fwd_ret: pd.DataFrame) -> pd.Series:
