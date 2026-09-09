@@ -255,9 +255,13 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
    `tests/test_weight_vectorization.py`（9 项，冻结原始循环为参考）逐位守护。
    注意：`risk/portfolio.py` 的 trade_limits 分支是时序依赖约束，保留逐日循环属合理。
    `models/portfolio_backtest.py::build_portfolio_naive`（错误示范）保留原循环以作对照。
-4. **成本参数仍有 8 处硬编码（延后，非紧急）**：真源已建（`risk/cost_model.py`），
-   `tests/test_cost_model.py` 已用 inspect 读取 8 处真实默认值断言无漂移——**防御已生效**。
-   调用点迁移到 import 真源属 DRY 收尾，可在下次触碰这些模块时顺手做。
+4. ~~**成本参数 8 处硬编码**~~ ✅ **已收口（2026-09-09）**：
+   全部调用点已迁移到 `risk.cost_model` 单一真源（engine/cross_section/portfolio/
+   orchestrator 默认值、evaluate 模块常量、portfolio_backtest 模块常量+签名）。
+   ⚠️ **收口 63a2b27 曾遗漏「显式传 cost=」的隐藏调用点**（walk_forward /
+   methodology_correction / execution_optimization 的 `COST = 0.003`）——
+   本次已修正并加 `test_explicit_roundtrip_call_sites` 守护。教训：
+   **默认值修正不覆盖显式传参，守护测试必须同时检查显式调用点。**
 6. **可观测性（范围限定，延后）**：113 个 py 文件仅 1 个用 `logging`，全仓 1178 处 `print()`。
    决策：不做全量迁移；如需，仅给长耗时入口（`strategies/*/report.py`、`walk_forward.py`、
    `lgbm_trainer.py`、`data/fetch_*.py`）加 logging。
