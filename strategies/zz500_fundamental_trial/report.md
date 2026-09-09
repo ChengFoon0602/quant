@@ -11,6 +11,18 @@
 > 不依赖成本口径**——其核心证据是「四维提纯 0/20 通过」和「PIT-Select 每年重选池选不出池（全空）」，
 > 这两个判决发生在组合回测之前、与交易成本无关，故「方向2 全否定」结论**不受成本口径修正影响**。
 
+> ⚠️ **数据质量审计（2026-09-09）**：对 cache_fundamental 做 PIT 约定审计，发现并修复一处**尺度污染 bug**。
+> - **问题**：roeAvg/gpMargin/npMargin/epsTTM 四个缓存混入非约定日期行（真 pubDate 行，~25-35% 值），
+>   其中 gpMargin/roeAvg 为**精确 100× 尺度错乱**（pubDate 行存小数、截止日行存百分数）。
+>   月末采样时部分股票在 0.14 与 14.2 间跳变，X_monthly 中 gpMargin 21% 股票受污染。
+> - **修复**：gpMargin 的 pubDate 行 ×100 统一为百分数（保留近 5 年覆盖）；roeAvg/npMargin/epsTTM
+>   删非约定行（截止日行已全周期覆盖）。X_monthly 重建后 gpMargin 100× 跳变消除。
+> - **稳健性检验**：清理后重算各因子月末 Rank IC，**gpMargin IC 0.011→0.005、epsTTM 0.021→0.020，
+>   其余 8 因子不变** —— 尺度污染**未掩盖任何单因子信号**。「方向2 全否定」的提纯证据（0/20 通过）
+>   建立在清理前后 IC 均 <0.05 的基础上，**结论对该 bug 稳健**。
+> - 可复现：`python data/run_pit_audit.py`（离线审计）、`python data/clean_cache_fundamental.py`（清理）、
+>   `cd strategies/zz500_fundamental_trial && python rebuild_x_monthly.py`（重建）。
+
 > **数据源变更记录（2026-08-14）**：baostock 按 IP 累计配额封禁（~5 万次/天），74 万次查询需跨天 20 天。
 > 换源组合：**16 财报因子 = akshare 新浪财务指标（1625 只 × 1 调用 ≈ 90min，无配额墙）+ 4 估值因子 = baostock 日线（1630 次查询单次拉完）**。
 > PIT 对齐从「公告日 pubDate+1」退化为「法定截止日+1」（akshare 新浪无公告日）——保守偏误，非未来函数，**可能部分解释了 FM 弱**。
