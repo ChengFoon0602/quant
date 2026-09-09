@@ -1,6 +1,14 @@
 """
 models/nn_trainer.py — MLP 深度学习对照。
 
+⚠️ DEPRECATED（2026-09-09 标注，勿用于新结论）：
+  本脚本的数字基于「方法论修正 II」前的**事故 universe**（见 models/report.md L754/L862），
+  未在 PIT universe 上重跑。其组合回测仍用旧成本 `cost=0.003`（铁律 0.1% 的 3 倍，
+  见 CLAUDE.md TODO 2 收口记录）。保留仅作「树模型 vs MLP 归纳偏置」的方法演示，
+  其中任何绝对数字均已作废。若未来重启深度学习对照，必须：
+    1) 走 PIT universe（strategies/feature_selection/build_pit_matrix.py 链路）
+    2) 移除 cost=0.003，改用 risk/cost_model 默认（或显式 buy_cost/sell_cost）
+
 与 LightGBM 相同的:
   - 20/60/20 截面分类标签
   - Purged Time-Series 5 折 CV + purge 6 天
@@ -18,6 +26,14 @@ from __future__ import annotations
 
 import sys
 import warnings
+import logging
+
+logger = logging.getLogger(__name__)
+logger.warning(
+    "⚠️ DEPRECATED: models/nn_trainer.py 基于事故 universe（修正 II 前），"
+    "仍用旧成本 cost=0.003。仅供方法演示，勿用于新结论。"
+    "若重启深度学习对照，须先走 PIT universe 并改用 risk/cost_model。"
+)
 from pathlib import Path
 
 import matplotlib
