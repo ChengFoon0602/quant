@@ -249,14 +249,27 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
    算术年化保留在 `annual_arith` / `annual_return_arith` 键供 AM-GM 对照。
 4. **成本参数仍有 8 处硬编码**：真源已建（`risk/cost_model.py`）+ 守护测试已就位
    （`tests/test_cost_model.py`），但 8 处调用点尚未改为 import 真源。
-5. **核心回测逐日 Python 循环**：`models/portfolio_backtest.py:171,247`、`risk/portfolio.py:145`
-   违反铁律「向量化优先」。实测（3886 日 × 1326 股）向量化可加速 **27×** 且结果逐位等价。
-6. **可观测性**：113 个 py 文件仅 1 个用 `logging`，全仓 1178 处 `print()`。
-7. **昨日新增模块未完全接入**（commit `c725602`）：`backtest/ic_evaluator.py`、
-   `signals/alpha191_ext.py` 零引用；`data/pit_auditor.py` 未接入 `zz500_fundamental_trial`
-   的 PIT 对齐链路（而该链路报告明确写了「从公告日退化为法定截止日」——正是最该审计的场景）。
-8. **`alpha191_ext` 算子性能**：`rolling().apply()` 是 Python 逐窗口回调，
-   实测 1000×300 需 2.5s（ts_argmax），真实规模 3886×1624 约 13s/算子。
-   与 `CLAUDE_AGENT_SOP.md` 自订的「严禁 for 循环」精神冲突。
-9. **`CLAUDE_AGENT_SOP.md:28` 判定阈值存在灰色地带**：死亡 `<1.0`、存活 `>1.5`，
-   1.0~1.5 区间未定义；且 SOP 引用的 `signals/auto_mined_alpha.py` 文件不存在。
+5. ~~**核心回测逐日 Python 循环**~~ ✅ **已收口（2026-09-09）**：
+   `models/portfolio_backtest.py::build_portfolio` 与 `risk/portfolio.py::build_weight_portfolio`
+   的 W_target 构造已向量化（27×，3886 日 × 1326 股 ~0.3s）。等价性由
+   `tests/test_weight_vectorization.py`（9 项，冻结原始循环为参考）逐位守护。
+   注意：`risk/portfolio.py` 的 trade_limits 分支是时序依赖约束，保留逐日循环属合理。
+   `models/portfolio_backtest.py::build_portfolio_naive`（错误示范）保留原循环以作对照。
+4. **成本参数仍有 8 处硬编码（延后，非紧急）**：真源已建（`risk/cost_model.py`），
+   `tests/test_cost_model.py` 已用 inspect 读取 8 处真实默认值断言无漂移——**防御已生效**。
+   调用点迁移到 import 真源属 DRY 收尾，可在下次触碰这些模块时顺手做。
+6. **可观测性（范围限定，延后）**：113 个 py 文件仅 1 个用 `logging`，全仓 1178 处 `print()`。
+   决策：不做全量迁移；如需，仅给长耗时入口（`strategies/*/report.py`、`walk_forward.py`、
+   `lgbm_trainer.py`、`data/fetch_*.py`）加 logging。
+7. **昨日新增模块（部分已处理）**：
+   - ✅ `ic_evaluator` / `alpha191_ext` 已补测试（`test_ic_evaluator.py` 11 项 +
+     `test_alpha191_ext.py` 19 项）。二者设计为 SOP Agent 运行时调用，零引用属预期。
+   - ✅ `pit_auditor` 已审计 `zz500_fundamental_trial` 链路（2026-09-09）并修复 4 个缓存
+     的尺度污染（gpMargin ×100、roeAvg/npMargin/epsTTM 删异源行）。审计结论：方向 2
+     「全否定」对该 bug 稳健（清理后 IC 未变强），无需全链重跑。详见报告「数据质量审计」。
+8. **`alpha191_ext` 算子性能（推迟）**：`rolling().apply()` 是 Python 逐窗口回调，
+   实测 1000×300 需 2.5s（ts_argmax），真实规模约 13s/算子。
+   当前零引用，优化未使用的代码是过早优化——推迟到 Agent 实际调用时再做（已有测试兜底）。
+9. ~~**`CLAUDE_AGENT_SOP.md` 阈值灰色地带 + 失效引用**~~ ✅ **已收口（2026-09-09）**：
+   补 `[1.0, 1.5]` 观察档（默认按观察处理）；阈值注明为经验值；
+   `auto_mined_alpha.py` 改为「不存在则创建」；补充 rolling.apply 同样禁止的说明。
