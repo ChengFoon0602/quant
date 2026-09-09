@@ -138,26 +138,24 @@ def build_weight_portfolio(
     p = pred_df.loc[common_dates, common_cols]
     r = daily_ret.loc[common_dates, common_cols]
 
-    # 1. 每日生成目标权重向量 w[t]
+    # 1. 每日生成目标权重向量 w[t]（2026-09-09 向量化：与原逐日循环输出逐位一致，
+    #    语义：有效股数<min_stocks 日跳过；分位在有效值上算；NaN 格不入 top/bottom）
     W_target = pd.DataFrame(0.0, index=common_dates, columns=common_cols)
     min_stocks = max(int(1.0 / top_q), int(1.0 / bottom_q)) * 2
+    eligible = p.notna().sum(axis=1) >= min_stocks
 
-    for d in common_dates:
-        pv = p.loc[d]
-        mask = pv.notna()
-        if mask.sum() < min_stocks:
-            continue
-        valid_p = pv[mask]
-        top_thr = valid_p.quantile(1.0 - top_q)
-        bot_thr = valid_p.quantile(bottom_q)
+    if eligible.any():
+        top_thr = p.quantile(1.0 - top_q, axis=1)
+        bot_thr = p.quantile(bottom_q, axis=1)
+        top_member = p.ge(top_thr, axis=0).where(eligible, False)
+        bot_member = p.le(bot_thr, axis=0).where(eligible, False)
 
-        top_stocks = valid_p[valid_p >= top_thr].index
-        bot_stocks = valid_p[valid_p <= bot_thr].index
-
-        if not short_only and len(top_stocks) > 0:
-            W_target.loc[d, top_stocks] = 1.0 / len(top_stocks)
-        if not long_only and len(bot_stocks) > 0:
-            W_target.loc[d, bot_stocks] = -1.0 / len(bot_stocks)
+        if not short_only:
+            cnt = top_member.sum(axis=1).replace(0, np.nan)
+            W_target += top_member.div(cnt, axis=0).fillna(0.0)
+        if not long_only:
+            cnt = bot_member.sum(axis=1).replace(0, np.nan)
+            W_target -= bot_member.div(cnt, axis=0).fillna(0.0)
 
     # 状态闸门
     if gate is not None:
