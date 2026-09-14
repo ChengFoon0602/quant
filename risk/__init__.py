@@ -26,6 +26,12 @@ from risk.crowding import (
     detect_extreme_events,
 )
 
+# 置于末尾：本模块 import risk.portfolio，须待其加载完成
+from risk.tradability import (
+    build_trade_limits,
+    measure_restriction_impact,
+)
+
 __all__ = [
     "build_weight_portfolio",
     "detect_limit_moves",
@@ -44,4 +50,6 @@ __all__ = [
     "compute_crowding_indicators",
     "compute_composite_crowding",
     "detect_extreme_events",
+    "build_trade_limits",
+    "measure_restriction_impact",
 ]

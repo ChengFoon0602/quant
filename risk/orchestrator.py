@@ -17,13 +17,14 @@ risk/orchestrator.py — 组合构建与再平衡编排层。
 
     orch = PortfolioOrchestrator(
         rebalance="monthly",
-        max_leverage=1.0,
+        max_leverage=2.0,            # LS 组合 Σ|W| 约为 2.0；默认 1.0 会被缩放到半仓
         max_weight_per_asset=0.10,
-        max_turnover=0.50,
         buy_cost=0.00026,
         sell_cost=0.00076,
     )
     result = orch.run(target_weights_fn, close_matrix, ...)
+
+    ⚠️ max_turnover 尚未实现（传入即 raise）。
 """
 
 from __future__ import annotations
@@ -61,7 +62,10 @@ class PortfolioOrchestrator:
     max_weight_per_asset : Optional[float]
         单资产权重上限（绝对值），默认 None 不限制。
     max_turnover : Optional[float]
-        单次调仓换手率上限（sum|ΔW|），默认 None 不限制。
+       单次调仓换手率上限（sum|ΔW|）。**当前未实现** —— 传入非 None 会立即
+       `raise NotImplementedError`。此前该参数被声明、写进 docstring 示例、
+       存为 `self.max_turnover`，却在 `apply_constraints` / `run` 中**从未被读取**，
+       传了等于没传且毫无提示（详见 CLAUDE.md TODO 18）。
     buy_cost, sell_cost : float
         买入/卖出单边费率，默认铁律标准（买 0.026% / 卖 0.076%）。
     """
@@ -78,7 +82,15 @@ class PortfolioOrchestrator:
         self.rebalance = rebalance
         self.max_leverage = max_leverage
         self.max_weight_per_asset = max_weight_per_asset
-        self.max_turnover = max_turnover
+        if max_turnover is not None:
+            # 唯一真源：CLAUDE.md TODO 18 —— 该参数此前被静默忽略（声明 + 文档示例 +
+            # 存 self，但 apply_constraints / run 从不读取）。按工程铁律 E1，
+            # 不确定的行为必须**响亮地失败**，而不是静默放行。
+            raise NotImplementedError(
+                "max_turnover（单次调仓换手率上限）尚未实现；此前该参数被静默忽略。"
+                "请勿传入（保持 None），或先实现裁剪逻辑再移除本守卫。见 CLAUDE.md TODO 18。"
+            )
+        self.max_turnover: None = None  # 恒为 None —— 上限未实现
         self.buy_cost = buy_cost
         self.sell_cost = sell_cost
 

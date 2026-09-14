@@ -20,6 +20,7 @@ venv/
 report_output.txt
 *.log
 reconciliation_report.txt
+tradability_report.txt
 
 # IDE
 .vscode/

@@ -417,20 +417,35 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
 
 ### ⏳ 待定夺（2026-09-15 风控/清算覆盖核对中发现）
 
-18. **`orchestrator.max_turnover` 是死参数（缺陷）**：`PortfolioOrchestrator.__init__` 声明并
-    存为 `self.max_turnover`，模块 docstring 还给了 `max_turnover=0.50` 的示例，但
-    `apply_constraints` / `run` **从未读取它** —— 传了等于没传，且**静默无提示**。
-    与「铁律 3 成本 bug 静默存活」同一类失效模式。处置选项：
-    (a) 实现单次调仓换手裁剪；(b) 移除参数并在 docstring 注明「未实现」；
-    (c) 暂时 raise「未实现」以免误信。**推荐 (b) 或 (c)，不推荐默不作声地留着。**
-19. **交易可行性风控的三件套零生产调用（事实，待定夺范围）**：全仓 grep 确认
-    `PortfolioOrchestrator`、`detect_limit_moves`、`apply_volatility_target` 仅出现在
-    `risk/` 自身与 `tests/`，**没有任何 `strategies/*/report.py` 或 `models/*.py` 使用**。
-    即：涨跌停/停牌撮合约束、编排层杠杆/单资产约束、波动率目标**从未约束过任何已发布结论**。
-    （对比：`gate` 与 `position_scale` **确在生产**——`etf_momentum_crowding` 的 MA20 避险、
-    `zz500_pit_trial/bear_short.py` 熊市门、`zz500_fundamental_trial/backtest_monthly.py` 月度门。）
-    待定夺：是否把 `trade_limits` 接进主流量价链路（会改变已发布报告的成交日集合，须先量化影响）。
+18. ~~**`orchestrator.max_turnover` 是死参数（缺陷）**~~ ✅ **已收口（2026-09-15）**：
+    改为**守卫式失败** —— 传入非 None 立即 `raise NotImplementedError`，属性恒为 `None`，
+    docstring 示例已移除该参数并注明未实现。理由：按 E1，不确定的行为必须响亮地失败，
+    而不是静默放行（这正是铁律 3 成本 bug 的失效模式）。守护测试
+    `tests/test_risk_constraints.py::TestUnimplementedParamsFailLoudly`。
+19. **交易可行性风控三件套零生产调用（事实，待你定夺是否接线）** —— 现已**量化出代价**：
+
+    实测量（`run_tradability_impact.py`，真实 790 票 / 2010-2025 / LS hold_days=5）：
+
+    | 指标 | 无限制 | 加一字涨跌停约束 | 变化 |
+    |---|---|---|---|
+    | 换手合计 | 2188.80 | 2188.14 | −0.66（**−0.03%**）|
+    | 成交日数 | 3238 | 3238 | 0 |
+    | 累计收益 | 1376.13% | 1102.74% | −273.39 pp |
+    | **年化 CAGR** | **19.10%** | **17.53%** | **−1.57 pp** |
+    | **夏普** | **1.1753** | **1.0924** | **−0.083（约 −7%）** |
+    | 最大回撤 | −37.17% | −38.79% | −1.62 pp |
+
+    一字板发生率极低：一字涨停 0.1100%、一字跌停 0.0375%（占有效格数）。
+    **判读**：约束代价**温和但不为零**——夏普 −7%、年化 −1.57pp，回撤略差。
+    机理是「被拦住的恰是涨停追涨类交易」，对动量型 alpha 略有伤。
+
+    **建议（待你确认）**：**不回改已发布报告**（代价温和，回改成本远超收益）；
+    但**新策略默认开启** `trade_limits`，并把它写进标准分析流程。`risk/tradability.py::build_trade_limits`
+    已补上此前无人推导的前收盘价环节，接线只需一次调用。
 20. **无止损 / 回撤控制机制**：全仓 grep `stop_loss|止损|max_drawdown_limit|trailing_stop` 零命中。
     日线级研究框架下「盘中止损」不适用，但**日频回撤控制**（如回撤触发降仓）是可做的，当前没有。
-21. **风控拦截缺少代价度量**：涨跌停掩码生效时**不记录**被拦下的换手/收益，因此无法回答
-    「交易限制让策略损失了多少」。要做容量或可交易性研究时这是必要输入。
+    ⏳ **未做**——这是功能新增而非缺陷修复，触发阈值 / 减仓幅度 / 恢复规则都是设计选择，需先定参数。
+21. ~~**风控拦截缺少代价度量**~~ ✅ **已收口（2026-09-15）**：
+    新增 `risk/tradability.py`（`build_trade_limits` 补上前收盘价推导 +
+    `measure_restriction_impact` 两条账本对比）与 `run_tradability_impact.py`；
+    守护测试 `tests/test_tradability.py`。**这是第 19 条决策的输入。**
