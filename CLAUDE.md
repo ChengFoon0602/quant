@@ -414,3 +414,23 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
     `.gitignore`「特征矩阵」段有意排除。已查清脉络（`git check-ignore` 确认，非误删）：
     **不是缺陷，是「大文件不入库」的设计取舍**。`load_data()` 报错信息已指明生成脚本与
     既存规避方案 `models/rerun_portfolio_backtest.py`。对账链路不依赖它。
+
+### ⏳ 待定夺（2026-09-15 风控/清算覆盖核对中发现）
+
+18. **`orchestrator.max_turnover` 是死参数（缺陷）**：`PortfolioOrchestrator.__init__` 声明并
+    存为 `self.max_turnover`，模块 docstring 还给了 `max_turnover=0.50` 的示例，但
+    `apply_constraints` / `run` **从未读取它** —— 传了等于没传，且**静默无提示**。
+    与「铁律 3 成本 bug 静默存活」同一类失效模式。处置选项：
+    (a) 实现单次调仓换手裁剪；(b) 移除参数并在 docstring 注明「未实现」；
+    (c) 暂时 raise「未实现」以免误信。**推荐 (b) 或 (c)，不推荐默不作声地留着。**
+19. **交易可行性风控的三件套零生产调用（事实，待定夺范围）**：全仓 grep 确认
+    `PortfolioOrchestrator`、`detect_limit_moves`、`apply_volatility_target` 仅出现在
+    `risk/` 自身与 `tests/`，**没有任何 `strategies/*/report.py` 或 `models/*.py` 使用**。
+    即：涨跌停/停牌撮合约束、编排层杠杆/单资产约束、波动率目标**从未约束过任何已发布结论**。
+    （对比：`gate` 与 `position_scale` **确在生产**——`etf_momentum_crowding` 的 MA20 避险、
+    `zz500_pit_trial/bear_short.py` 熊市门、`zz500_fundamental_trial/backtest_monthly.py` 月度门。）
+    待定夺：是否把 `trade_limits` 接进主流量价链路（会改变已发布报告的成交日集合，须先量化影响）。
+20. **无止损 / 回撤控制机制**：全仓 grep `stop_loss|止损|max_drawdown_limit|trailing_stop` 零命中。
+    日线级研究框架下「盘中止损」不适用，但**日频回撤控制**（如回撤触发降仓）是可做的，当前没有。
+21. **风控拦截缺少代价度量**：涨跌停掩码生效时**不记录**被拦下的换手/收益，因此无法回答
+    「交易限制让策略损失了多少」。要做容量或可交易性研究时这是必要输入。
