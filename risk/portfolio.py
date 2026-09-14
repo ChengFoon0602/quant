@@ -14,6 +14,11 @@ from typing import Tuple, Dict, Any, Optional
 import numpy as np
 import pandas as pd
 
+from backtest.invariants import (  # 输入契约断言（零项目内依赖，不会形成循环导入）
+    assert_cost_params,
+    assert_price_panel,
+    assert_weight_matrix,
+)
 from risk.cost_model import BUY_COST, SELL_COST  # 费率单一真源（2026-09-09 迁移）
 
 
@@ -130,6 +135,10 @@ def build_weight_portfolio(
         buy_cost = cost / 2.0
         sell_cost = cost / 2.0
 
+    # ── 输入契约断言（事前拦截，失败直接中断而非降级成日志）──
+    assert_price_panel(close_matrix)
+    assert_cost_params(buy_cost, sell_cost)
+
     # 收益锚定日约定（全仓库统一）：t→t+1 收益记在 t+1 日。
     # 因此 daily_ret[t] = close[t] / close[t-1] - 1，与 engine.py / cross_section.py / labels.py 的 pct_change() 语义一致。
     daily_ret = close_matrix.pct_change()
@@ -163,6 +172,13 @@ def build_weight_portfolio(
     if gate is not None:
         g = gate.reindex(common_dates).fillna(1.0)
         W_target = W_target.mul(g, axis=0)
+
+    # 目标权重契约：多空总杠杆 Σ|w| ≤ 2，单边（long_only/short_only）≤ 1
+    assert_weight_matrix(
+        W_target,
+        max_gross=1.0 if (long_only or short_only) else 2.0,
+        name="W_target",
+    )
 
     # 2. 实际持仓 W[t] = 过去 hold_days 天目标权重的平均
     W_held = W_target.rolling(hold_days, min_periods=1).mean()

@@ -15,6 +15,7 @@ A 股交易成本（2026 年标准）：
 import numpy as np
 import pandas as pd
 
+from backtest.invariants import assert_cost_params, assert_price_panel  # 输入契约断言
 from risk.cost_model import BUY_COST, SELL_COST  # 费率单一真源（2026-09-09 迁移）
 
 
@@ -35,6 +36,10 @@ def run(
     Returns
         dict: equity, benchmark, strategy_net, metrics
     """
+    # 输入契约断言（事前拦截，失败直接中断而非降级成日志）
+    assert_price_panel(close, name="close")
+    assert_cost_params(buy_cost, sell_cost)
+
     position = signal.shift(1).fillna(0).clip(0, 1)
 
     daily_ret = close.pct_change().fillna(0)

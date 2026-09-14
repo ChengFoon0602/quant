@@ -48,6 +48,11 @@ BOTTOM_Q = 0.20
 # 成本口径（2026-09 修正）：默认走方向分离 buy_cost/sell_cost（铁律 0.1%）。
 # COST_BPS 仅作向后兼容的「双边合计」常量保留，新代码不再使用。
 # 费率单一真源见 risk/cost_model.py（2026-09-09 迁移），本文件不再写字面量。
+from backtest.invariants import (  # noqa: E402  输入契约断言
+    assert_cost_params,
+    assert_price_panel,
+    assert_weight_matrix,
+)
 from risk.cost_model import BUY_COST, ROUND_TRIP, SELL_COST  # noqa: E402
 
 COST_BPS = ROUND_TRIP  # 双边合计 ≈ 0.102%（买 0.026% + 卖 0.076%）
@@ -156,6 +161,10 @@ def build_portfolio(
         buy_cost = cost / 2.0
         sell_cost = cost / 2.0
 
+    # ── 输入契约断言（事前拦截，失败直接中断而非降级成日志）──
+    assert_price_panel(close_matrix)
+    assert_cost_params(buy_cost, sell_cost)
+
     # 收益锚定日约定（全仓库统一）：t→t+1 收益记在 t+1 日，即 pct_change()
     daily_ret = close_matrix.pct_change()
 
@@ -195,6 +204,13 @@ def build_portfolio(
     if gate is not None:
         g = gate.reindex(W_target.index).ffill().fillna(0.0)
         W_target = W_target.mul(g, axis=0)
+
+    # 目标权重契约：多空总杠杆 Σ|w| ≤ 2，单边（long_only/short_only）≤ 1
+    assert_weight_matrix(
+        W_target,
+        max_gross=1.0 if (long_only or short_only) else 2.0,
+        name="W_target",
+    )
 
     # ── 实际持仓 = 过去 hold_days 天目标权重的平均（重叠 tranche）──
     W_held = W_target.rolling(hold_days, min_periods=1).mean()

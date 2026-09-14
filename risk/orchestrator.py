@@ -33,6 +33,11 @@ from typing import Callable, Optional
 import numpy as np
 import pandas as pd
 
+from backtest.invariants import (  # 输入契约断言（零项目内依赖）
+    assert_cost_params,
+    assert_price_panel,
+    assert_weight_matrix,
+)
 from risk.cost_model import BUY_COST, SELL_COST  # 费率单一真源（2026-09-09 迁移）
 from risk.portfolio import calculate_metrics
 
@@ -156,6 +161,10 @@ class PortfolioOrchestrator:
         # 收益锚定（与全仓库一致：t→t+1 收益记在 t+1）
         daily_ret = close_matrix.pct_change()
 
+        # ── 输入契约断言（事前拦截，失败直接中断而非降级成日志）──
+        assert_price_panel(close_matrix)
+        assert_cost_params(self.buy_cost, self.sell_cost)
+
         dates = close_matrix.index
         symbols = close_matrix.columns
         rb_dates = self.rebalance_dates(dates)
@@ -179,6 +188,14 @@ class PortfolioOrchestrator:
 
             W_held.loc[d] = executed.values
             prev_w = executed
+
+        # 持仓契约：总杠杆与单资产上限（apply_constraints 已强制，此处自证）
+        assert_weight_matrix(
+            W_held,
+            max_gross=self.max_leverage,
+            max_weight_per_asset=self.max_weight_per_asset,
+            name="W_held",
+        )
 
         # 组合收益 = W[t-1] · daily_ret[t]
         W_lag = W_held.shift(1).fillna(0.0)

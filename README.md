@@ -13,12 +13,12 @@ quant/
 │   ├── pit_auditor.py        # PIT 对齐离线审计（防未来函数自检）
 │   └── cache_*/              # CSV 缓存（不入 git，可增量更新）
 ├── signals/                  # 因子库：alpha191、基本面 factors、横截面正交化
-├── backtest/                 # 向量化回测引擎 + metrics（CAGR/Sharpe 规范口径）
+├── backtest/                 # 向量化回测引擎 + metrics（CAGR/Sharpe 口径）+ invariants（输入契约断言）
 ├── risk/                     # 组合构建（权重追踪法）+ cost_model 成本单一真源 + 拥挤度
 ├── strategies/               # 策略研究：每子目录 = report.md + report.py + figures/
 ├── models/                   # ML 非线性合成（LightGBM）+ Walk-Forward + 方法论修正记录
-├── tests/                    # 109 项回归测试（铁律编译测试、变异验证守护）
-├── docs/                     # 口径论证文档、实施计划
+├── tests/                    # 154 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
+├── docs/                     # 口径论证、回测语义对照表、实施计划
 ├── viz/                      # 可视化工具
 └── bootstrap.py              # 首次数据拉取脚本
 ```
@@ -53,7 +53,13 @@ quant/
 selection bias（WF 年度重选池）、摩擦成本（双边 ≈ 0.1%，买 0.026%/卖 0.076% 方向分离）、
 数据可复现性（manifest + 随机种子）、向量化优先。
 
-## 工程质量（2026-09-09 收口）
+**工程铁律**（管系统本身是否可靠，详见 `CLAUDE.md` E1–E4）：
+确定性内核用断言不用告警（`backtest/invariants.py`，失败 `raise`）、四个时点显式化
+（信号可用 / 订单生效 / 成本发生 / 收益归属）、回测↔实盘语义一致（`docs/回测语义对照表.md`）、
+AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈亏闭合）由 `tests/test_reconciliation.py`
+以**独立重算**方式守护。
+
+## 工程质量（2026-09-09 / 2026-09-14 收口）
 
 方法论纪律不止写在 `CLAUDE.md`，**已编译为可执行测试与单一真源**：
 
@@ -62,12 +68,18 @@ selection bias（WF 年度重选池）、摩擦成本（双边 ≈ 0.1%，买 0.
 | **成本单一真源** | `risk/cost_model.py`（BUY_COST/SELL_COST/ROUND_TRIP）；全仓库调用点统一 import，无硬编码残留 |
 | **铁律守护测试** | `tests/test_cost_model.py` 用 `inspect` 读取**真实默认值/显式 COST 常量**断言=真源；变异验证过（改回 0.003 立即失败） |
 | **指标规范口径** | `backtest/metrics.py`：年化统一为路径 CAGR；Sharpe 口径跨模块一致 |
+| **输入契约断言** | `backtest/invariants.py`：价格面板 / 收益面板 / 权重矩阵 / 费率，接入 4 个回测入口，失败 `raise` 不 warn |
+| **账本自洽对账** | `tests/test_reconciliation.py`：仓位 / 流水 / 盈亏闭合，**独立重算**比对三条组合实现 |
 | **PIT 自检** | `data/pit_auditor.py` + `run_pit_audit.py` 离线审计基本面缓存日期约定 |
 | **向量化引擎** | `build_portfolio` 权重构造向量化（27×，等价性测试逐位守护） |
-| **测试规模** | 109 项全绿：铁律 1/2/3 编译、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
+| **测试规模** | 154 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
 
 > 驱动这些收口的两轮评审发现：成本守护测试此前是「空转」（自声明常量测算术，从不 import 真实代码）、
 > 基本面缓存存在 100× 尺度污染、Walk-Forward 隐藏调用点仍传 0.3% 成本——均已被修正并加守护。
+>
+> **2026-09-14 加固**：正确性保障从事后回归前移到**事前断言**。同时经独立重算对账发现一处真实口径差异——
+> `min_stocks` 阈值 `risk/portfolio.py` 用 `base*2`、`models/portfolio_backtest.py` 用 `base*3`（默认 10 vs 15）；
+> 除该阈值外两条实现逐位一致，差异已由 `TestKnownDivergence` 钉住，**未擅自统一**（会改变已发布报告持仓日集合）。
 
 ## 快速开始
 
@@ -76,7 +88,7 @@ selection bias（WF 年度重选池）、摩擦成本（双边 ≈ 0.1%，买 0.
 pip install -r requirements.txt
 
 python bootstrap.py                    # 拉取沪深 300 全量日线（首启）
-python -m unittest discover -s tests   # 109 项回归测试
+python -m unittest discover -s tests   # 154 项回归测试
 cd strategies/ma_crossover
 python report.py                       # 生成回测报告
 ```
