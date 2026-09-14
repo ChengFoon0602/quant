@@ -13,12 +13,13 @@ quant/
 │   ├── pit_auditor.py        # PIT 对齐离线审计（防未来函数自检）
 │   └── cache_*/              # CSV 缓存（不入 git，可增量更新）
 ├── signals/                  # 因子库：alpha191、基本面 factors、横截面正交化
-├── backtest/                 # 向量化回测引擎 + metrics（CAGR/Sharpe 口径）+ invariants（输入契约断言）
+├── backtest/                 # 向量化回测引擎 + metrics（CAGR/Sharpe 口径）+ invariants（契约断言）+ reconciliation（账本对账）
 ├── risk/                     # 组合构建（权重追踪法）+ cost_model 成本单一真源 + 拥挤度
 ├── strategies/               # 策略研究：每子目录 = report.md + report.py + figures/
 ├── models/                   # ML 非线性合成（LightGBM）+ Walk-Forward + 方法论修正记录
-├── tests/                    # 154 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
+├── tests/                    # 209 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
 ├── docs/                     # 口径论证、回测语义对照表、实施计划
+├── run_reconciliation.py     # 真实数据账本对账（离线运行器，产出 reconciliation_report.txt）
 ├── viz/                      # 可视化工具
 └── bootstrap.py              # 首次数据拉取脚本
 ```
@@ -68,11 +69,13 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 | **成本单一真源** | `risk/cost_model.py`（BUY_COST/SELL_COST/ROUND_TRIP）；全仓库调用点统一 import，无硬编码残留 |
 | **铁律守护测试** | `tests/test_cost_model.py` 用 `inspect` 读取**真实默认值/显式 COST 常量**断言=真源；变异验证过（改回 0.003 立即失败） |
 | **指标规范口径** | `backtest/metrics.py`：年化统一为路径 CAGR；Sharpe 口径跨模块一致 |
-| **输入契约断言** | `backtest/invariants.py`：价格面板 / 收益面板 / 权重矩阵 / 费率，接入 4 个回测入口，失败 `raise` 不 warn |
-| **账本自洽对账** | `tests/test_reconciliation.py`：仓位 / 流水 / 盈亏闭合，**独立重算**比对三条组合实现 |
+| **输入契约断言** | `backtest/invariants.py`：价格面板 / 收益面板 / 权重矩阵 / 费率 / **结果合理性**，接入数据层（`data/fetcher.py`）、4 个回测入口与输出端，失败 `raise` 不 warn |
+| **账本自洽对账** | `backtest/reconciliation.py`（单一真源）+ `tests/test_reconciliation*.py`：仓位 / 流水 / 盈亏闭合，**独立重算**比对三条组合实现；`run_reconciliation.py` 对**真实报告数据**（790 票）离线对账 |
+| **时点契约** | `tests/test_time_point_contract.py`：手算场景同时钉住信号可用 / 订单生效 / 成本发生 / 收益归属四个时点 |
+| **成交假设断言** | `tests/test_execution_assumptions.py`：涨跌停识别（主板/创业板/ST/北交所）+ **撮合层真拦单**；`test_price_adjust.py` 锁死三复权不共用文件 |
 | **PIT 自检** | `data/pit_auditor.py` + `run_pit_audit.py` 离线审计基本面缓存日期约定 |
 | **向量化引擎** | `build_portfolio` 权重构造向量化（27×，等价性测试逐位守护） |
-| **测试规模** | 154 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
+| **测试规模** | 209 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、时点契约、成交假设、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
 
 > 驱动这些收口的两轮评审发现：成本守护测试此前是「空转」（自声明常量测算术，从不 import 真实代码）、
 > 基本面缓存存在 100× 尺度污染、Walk-Forward 隐藏调用点仍传 0.3% 成本——均已被修正并加守护。
@@ -80,6 +83,12 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 > **2026-09-14 加固**：正确性保障从事后回归前移到**事前断言**。同时经独立重算对账发现一处真实口径差异——
 > `min_stocks` 阈值 `risk/portfolio.py` 用 `base*2`、`models/portfolio_backtest.py` 用 `base*3`（默认 10 vs 15）；
 > 除该阈值外两条实现逐位一致，差异已由 `TestKnownDivergence` 钉住，**未擅自统一**（会改变已发布报告持仓日集合）。
+>
+> **2026-09-15 残余收口**：断言下移到**数据层与结果层**；对账升级为**真实报告数据**（790 票全量逐位一致）；
+> 成交假设与复权从人读清单变为自动断言；四时点收敛为一条手算契约。
+> `min_stocks` 参数化为 `min_stocks_mult`（默认行为逐位不变）并实测：**全量 universe 下差异为 0**，
+> 仅稀疏截面显著 → **决策不统一**，留作显式开关。
+> 顺带修复 `trade_limits` 日循环从 `i=1` 起导致**首日持仓绕过涨跌停**的边界缺口（对已发布结果零影响）。
 
 ## 快速开始
 
@@ -88,9 +97,11 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 pip install -r requirements.txt
 
 python bootstrap.py                    # 拉取沪深 300 全量日线（首启）
-python -m unittest discover -s tests   # 154 项回归测试
+python -m unittest discover -s tests   # 209 项回归测试
 cd strategies/ma_crossover
 python report.py                       # 生成回测报告
+
+python run_reconciliation.py           # 真实报告数据账本对账（790 票，约 10s）
 ```
 
 > 数据已缓存在 `data/cache_*`（日线 + 基本面 + ETF + 指数成分），fetcher 负责增量更新。

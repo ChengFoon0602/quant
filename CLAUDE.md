@@ -383,6 +383,34 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
       `risk/portfolio.py` 用 `base*2`、`models/portfolio_backtest.py` 用 `base*3`（默认 10 vs 15）。
       同一输入下两条实现逐位一致（除该阈值外），差异被 `TestKnownDivergence` 钉住。
       **未修改**——统一阈值会改变已发布报告的持仓日集合，须先评估影响再决策。
-11. **`risk/orchestrator.py` docstring 与实现不一致（待定夺）**：`max_leverage` 的 docstring 写
-    「`|sum(W)|` 的绝对值上限」（净敞口），实现约束的是 `Σ|W|`（总杠杆）。标准术语下
-    `Σ|W|` 才是 gross leverage。**当前不改**——docstring 措辞修正不影响数值，但如需澄清请单独授权。
+11. **`risk/orchestrator.py` docstring 与实现不一致** ✅ **已收口（2026-09-15）**：
+    `max_leverage` 的 docstring 原写「`|sum(W)|` 的绝对值上限」（净敞口），实现约束的是 `Σ|W|`（总杠杆）。
+    已改为 gross leverage 表述，并补注「LS 组合须显式传 `max_leverage=2.0`，否则被静默缩放到半仓」。
+
+### ✅ 已收口（2026-09-15，残余五项）
+
+12. ~~**断言只覆盖回测入口**~~ ✅ 已下移到**数据层与结果层**：
+    `data/fetcher.py::_assert_daily_frame`（必需列 + close 价格面板）接入 `load_daily`/`download_daily`
+    全部返回点；新增 `assert_result_sane`（只断言必然错误；**不含 `|SR|>3`**——那是启发式，不是不变量）
+    接入三条实现的输出端。已实测真实面板不误报（NaN 占比 50%、0 负价、0 全 NaN 列）。
+13. ~~**对账只在合成数据上跑过**~~ ✅ 新增 `run_reconciliation.py`（真实 OOF + 真实价格，全量 790 票）
+    + `tests/test_reconciliation_real_data.py`（50 票采样，秒级随套件运行）。
+    真实数据对账**全部通过**，两条实现逐位一致。
+14. ~~**成交假设 / 复权仍是人读清单**~~ ✅ 新增 `tests/test_execution_assumptions.py`
+    （跌停 / ST / 北交所识别 + **撮合层真拦单**）与 `tests/test_price_adjust.py`
+    （三复权不共用文件 + 读写同映射）。
+    **顺带修复**：`build_weight_portfolio` 的 `trade_limits` 日循环原从 `i=1` 起，
+    使**首日持仓绕过涨跌停**；已修。该缺口仅影响被丢弃的建仓爬坡期，对已发布结果零影响。
+15. ~~**四时点无专门断言**~~ ✅ 新增 `tests/test_time_point_contract.py`：
+    手算场景（价格 `[10,10,20,20]` + 信号 `[1,1,0,0]`）同时钉住四个时点，
+    并对 `engine.run` 与面板参考账本**双双**验证锚定方向一致。
+16. ~~**`min_stocks` 硬编码差异**~~ ✅ 已参数化为 `min_stocks_mult`（默认 2 / 3，**行为逐位不变**），
+    并在真实数据上量化影响：**全量 790 票下差异为 0**（持仓日 3238/3238、夏普 1.175/1.175，
+    两条实现逐位一致）；仅稀疏截面（<15 只/日）显著（抽样 60 票差 43.96% 持仓日）。
+    **决策：不统一**——对已发布结论零影响，参数留作稀疏截面的显式开关。
+17. **`models/` 依赖被 gitignore 的生成物（记录，不修）**：`load_data()` / `walk_forward.py` /
+    `nn_trainer.py` / `train_final_model.py` / `linear_baseline.py` 均需
+    `strategies/feature_selection/X_matrix.csv` —— `build_pit_matrix.py` 的生成物，被
+    `.gitignore`「特征矩阵」段有意排除。已查清脉络（`git check-ignore` 确认，非误删）：
+    **不是缺陷，是「大文件不入库」的设计取舍**。`load_data()` 报错信息已指明生成脚本与
+    既存规避方案 `models/rerun_portfolio_backtest.py`。对账链路不依赖它。

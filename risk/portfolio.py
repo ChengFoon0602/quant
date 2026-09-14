@@ -17,6 +17,7 @@ import pandas as pd
 from backtest.invariants import (  # 输入契约断言（零项目内依赖，不会形成循环导入）
     assert_cost_params,
     assert_price_panel,
+    assert_result_sane,
     assert_weight_matrix,
 )
 from risk.cost_model import BUY_COST, SELL_COST  # 费率单一真源（2026-09-09 迁移）
@@ -87,6 +88,7 @@ def build_weight_portfolio(
     buy_cost: float = BUY_COST,
     sell_cost: float = SELL_COST,
     hold_days: int = 5,
+    min_stocks_mult: int = 2,
     position_scale: Optional[pd.Series] = None,
     gate: Optional[pd.Series] = None,
     trade_limits: Optional[Tuple[pd.DataFrame, pd.DataFrame]] = None,
@@ -118,6 +120,11 @@ def build_weight_portfolio(
         卖出单边费率（佣金 + 印花税 0.05% + 过户费），与铁律第 3 条一致。
     hold_days : int, default 5
         持有天数（tranche 数量）。
+    min_stocks_mult : int, default 2
+        最小有效股数倍数：`min_stocks = base * min_stocks_mult`，
+        其中 `base = max(int(1/top_q), int(1/bottom_q))`。默认 2 是既有口径，
+        **与 `models/portfolio_backtest.py` 的默认 3 不同**（历史遗留差异，
+        见 docs/回测语义对照表.md「已知局限」③）。本参数只做显式化，不改变默认行为。
     position_scale : Optional[pd.Series], default None
         逐日仓位系数（如市场高波动时降低仓位），后乘于实际持仓 W 上。
     gate : Optional[pd.Series], default None
@@ -152,7 +159,9 @@ def build_weight_portfolio(
     # 1. 每日生成目标权重向量 w[t]（2026-09-09 向量化：与原逐日循环输出逐位一致，
     #    语义：有效股数<min_stocks 日跳过；分位在有效值上算；NaN 格不入 top/bottom）
     W_target = pd.DataFrame(0.0, index=common_dates, columns=common_cols)
-    min_stocks = max(int(1.0 / top_q), int(1.0 / bottom_q)) * 2
+    if min_stocks_mult < 1:
+        raise ValueError(f"min_stocks_mult 必须 ≥ 1，得到 {min_stocks_mult}（0 会静默关闭开仓门槛）")
+    min_stocks = max(int(1.0 / top_q), int(1.0 / bottom_q)) * min_stocks_mult
     eligible = p.notna().sum(axis=1) >= min_stocks
 
     if eligible.any():
@@ -190,12 +199,16 @@ def build_weight_portfolio(
         lim_down_aligned = lim_down.reindex(index=common_dates, columns=common_cols).fillna(False)
 
         W_held_constrained = W_held.copy()
-        for i in range(1, len(common_dates)):
+        zero_prev = pd.Series(0.0, index=common_cols)
+        for i in range(len(common_dates)):
             d_curr = common_dates[i]
-            d_prev = common_dates[i - 1]
 
             target_w = W_held.loc[d_curr]
-            prev_w = W_held_constrained.loc[d_prev]
+            # 首日之前无持仓（prev_w = 0），且**首日同样受限制约束** ——
+            # 旧实现从 i=1 起循环，使首日持仓绕过涨跌停（2026-09-15 修复；
+            # 该缺口只影响本函数返回的 W_held 首行，而首行仅作用于被丢弃的建仓爬坡期，
+            # 对已发布结果零影响；且 trade_limits 此前无生产调用点）。
+            prev_w = zero_prev if i == 0 else W_held_constrained.loc[common_dates[i - 1]]
 
             # 试图买入 (w > prev_w) 但一字涨停 -> 无法买入，维持 prev_w
             cant_buy = (target_w > prev_w) & lim_up_aligned.loc[d_curr]
@@ -248,6 +261,9 @@ def build_weight_portfolio(
         "port_ret": port_ret,
         "cum": cum,
     })
+
+    # 输出端契约：结果合理性（只断言必然错误，不判断指标好坏）
+    assert_result_sane(result_df)
 
     if return_weights:
         return result_df, W_held.loc[port_ret.index]

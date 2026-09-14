@@ -18,12 +18,37 @@ import pandas as pd
 import baostock as bs
 import akshare as ak
 
+from backtest.invariants import (  # 输入契约断言（零项目内依赖，不构成循环导入）
+    InvariantViolation,
+    assert_price_panel,
+)
+
 CACHE_DIR = Path(__file__).parent / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── 内部工具 ──────────────────────────────────────────────
 
 _logged_in = False
+
+# 日线必需列（= baostock query_history_k_data_plus 的字段集）
+_REQUIRED_COLS = ("open", "high", "low", "close", "volume", "amount")
+
+
+def _assert_daily_frame(df: pd.DataFrame, symbol: str) -> None:
+    """日线加载/下载返回前的契约校验。
+
+    只断言**必然错误**（见 CLAUDE.md 工程铁律 E1）：
+      - 必需列齐备；
+      - close 是合法价格面板：索引有序且唯一、价格非负、非全 NaN。
+
+    ⚠️ 不把 volume / amount 纳入价格断言——它们不是价格，且个别标的可能整列缺失。
+    ⚠️ 允许 close 含孤立 NaN（停牌 / 未上市）。实测真实截面 NaN 占比约 50%，
+       若在这里要求「无 NaN」会立刻全线误报。
+    """
+    missing = [c for c in _REQUIRED_COLS if c not in df.columns]
+    if missing:
+        raise InvariantViolation(f"{symbol}: 日线缺少必需列 {missing}")
+    assert_price_panel(df[["close"]], name=f"{symbol}.close")
 
 def _ensure_login():
     """确保 baostock 已登录（幂等），抑制重复登录输出。"""
@@ -116,7 +141,9 @@ def download_daily(
         cache_start = cached.index.min().strftime("%Y-%m-%d")
         cache_end = cached.index.max().strftime("%Y-%m-%d")
         if cache_start <= start and cache_end >= end:
-            return cached.loc[start:end] if len(cached) > 0 else cached
+            result = cached.loc[start:end] if len(cached) > 0 else cached
+            _assert_daily_frame(result, symbol)
+            return result
         # 扩展到缓存未覆盖的范围（向前和向后都要补）
         start = min(start, cache_start)
         end = max(end, cache_end)
@@ -147,8 +174,9 @@ def download_daily(
     else:
         if cache_path.exists():
             print(f"[WARN] {symbol} 全部重试失败，返回本地缓存: {last_error}")
-            cached = pd.read_csv(cache_path, parse_dates=["date"], index_col="date")
-            return cached.sort_index()
+            cached = pd.read_csv(cache_path, parse_dates=["date"], index_col="date").sort_index()
+            _assert_daily_frame(cached, symbol)
+            return cached
         raise last_error
 
     # 解析返回数据
@@ -158,8 +186,9 @@ def download_daily(
 
     if not rows:
         if cache_path.exists():
-            cached = pd.read_csv(cache_path, parse_dates=["date"], index_col="date")
-            return cached.sort_index()
+            cached = pd.read_csv(cache_path, parse_dates=["date"], index_col="date").sort_index()
+            _assert_daily_frame(cached, symbol)
+            return cached
         raise RuntimeError(f"{symbol} 返回空数据，可能停牌或退市")
 
     df = pd.DataFrame(rows, columns=rs.fields)
@@ -178,6 +207,7 @@ def download_daily(
         df = pd.concat([cached[~cached.index.isin(df.index)], df]).sort_index()
 
     df.to_csv(cache_path)
+    _assert_daily_frame(df, symbol)
     return df
 
 
@@ -186,11 +216,16 @@ def load_daily(symbol: str, adjust: str = "2") -> pd.DataFrame | None:
 
     Parameters
         adjust: 复权方式，与 download_daily 一致，决定读取哪个缓存文件。
+
+    Notes
+        返回前做契约校验（必需列 + close 价格面板，见 `_assert_daily_frame`），
+        违反即 raise `InvariantViolation`，不返回可疑数据。
     """
     p = _cache_path(symbol, adjust=adjust)
     if not p.exists():
         return None
     df = pd.read_csv(p, parse_dates=["date"], index_col="date").sort_index()
+    _assert_daily_frame(df, symbol)
     return df
 
 

@@ -12,6 +12,9 @@ test_reconciliation.py — 回测结果自洽性对账（账本一致性）。
 对账方式是**独立重算**：从实际持仓矩阵出发重新推一遍损益，与实现给出的
 结果逐位比对。这与「用实现自己的中间量验证实现」有本质区别 —— 后者是空转。
 
+对账引擎在 `backtest/reconciliation.py`（**单一真源**），本文件只负责
+合成数据用例。真实数据对账走 `run_reconciliation.py`。
+
 覆盖三条独立实现：
     risk/portfolio.py::build_weight_portfolio
     risk/orchestrator.py::PortfolioOrchestrator.run
@@ -31,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 from backtest.invariants import InvariantViolation, assert_weight_matrix
+from backtest.reconciliation import assert_books_equal, assert_closed
 from risk.cost_model import BUY_COST, SELL_COST
 from risk.orchestrator import PortfolioOrchestrator
 from risk.portfolio import build_weight_portfolio
@@ -43,7 +47,6 @@ except Exception:  # noqa: BLE001  —— 可选依赖缺失时跳过该组用�
 HOLD_DAYS = 5
 TOP_Q = 0.20
 BOTTOM_Q = 0.20
-_TOL = 1e-10
 
 
 def synthetic_panel(n_days: int = 400, n_syms: int = 30, seed: int = 7):
@@ -55,55 +58,6 @@ def synthetic_panel(n_days: int = 400, n_syms: int = 30, seed: int = 7):
     close = pd.DataFrame(100.0 * np.cumprod(1.0 + rets, axis=0), index=dates, columns=syms)
     pred = pd.DataFrame(rng.normal(size=(n_days, n_syms)), index=dates, columns=syms)
     return close, pred
-
-
-def reconcile_from_weights(W_held, close, buy_cost=BUY_COST, sell_cost=SELL_COST):
-    """从实际持仓矩阵独立重算 (gross, cost, port_ret, turnover) —— 对账参考账本。"""
-    cols = W_held.columns.intersection(close.columns)
-    daily_ret = close.loc[W_held.index, cols].pct_change()
-    W = W_held[cols]
-
-    gross = (W.shift(1).fillna(0.0) * daily_ret).sum(axis=1)
-
-    dW = W - W.shift(1).fillna(0.0)
-    buy_to = dW.clip(lower=0.0).sum(axis=1)
-    sell_to = (-dW).clip(lower=0.0).sum(axis=1)
-    cost = buy_to * buy_cost + sell_to * sell_cost
-
-    return gross, cost, gross - cost, dW.abs().sum(axis=1)
-
-
-def assert_closed(res, W_held, close, buy_cost=BUY_COST, sell_cost=SELL_COST):
-    """三类对账 + 净值路径一致性。第一行 shift 无前值，两侧一致跳过。"""
-    # ── 仓位对账 ──
-    assert_weight_matrix(W_held, name="W_held")
-    if set(W_held.columns) != set(close.columns):
-        raise AssertionError("仓位对账失败：持仓列集合与价格矩阵不一致")
-
-    gross, cost, port, turnover = reconcile_from_weights(W_held, close, buy_cost, sell_cost)
-    idx = gross.index[1:]  # 第一行缺少前一日持仓，参考账本无法复现
-
-    # ── 流水对账 ──
-    np.testing.assert_allclose(res["turnover"].reindex(idx).values,
-                               turnover.reindex(idx).values, rtol=0, atol=_TOL)
-
-    # ── 盈亏核对 ──
-    np.testing.assert_allclose(res["port_ret"].reindex(idx).values,
-                               port.reindex(idx).values, rtol=0, atol=_TOL)
-    if "gross_ret" in res and "cost" in res:
-        np.testing.assert_allclose(res["gross_ret"].reindex(idx).values,
-                                   gross.reindex(idx).values, rtol=0, atol=_TOL)
-        np.testing.assert_allclose(res["cost"].reindex(idx).values,
-                                   cost.reindex(idx).values, rtol=0, atol=_TOL)
-        # 逐日闭合：毛收益 - 成本 = 净收益
-        np.testing.assert_allclose(res["port_ret"].values,
-                                   (res["gross_ret"] - res["cost"]).values,
-                                   rtol=0, atol=_TOL)
-
-    # ── 净值由净收益唯一确定 ──
-    np.testing.assert_allclose(res["cum"].values,
-                               (1.0 + res["port_ret"]).cumprod().values,
-                               rtol=1e-12, atol=_TOL)
 
 
 class TestReconciliationRiskPortfolio(unittest.TestCase):
@@ -214,42 +168,72 @@ class TestCrossImplementationSemantics(unittest.TestCase):
             pred, close, top_q=TOP_Q, bottom_q=BOTTOM_Q, hold_days=HOLD_DAYS)
         r2 = _models_build_portfolio(
             pred, close, top_q=TOP_Q, bottom_q=BOTTOM_Q, hold_days=HOLD_DAYS)
-        self.assertEqual(len(r1), len(r2))
-        np.testing.assert_allclose(r1["port_ret"].values, r2["port_ret"].values,
-                                   rtol=0, atol=1e-12)
-        np.testing.assert_allclose(r1["turnover"].values, r2["turnover"].values,
-                                   rtol=0, atol=1e-12)
+        assert_books_equal(r1, r2)
 
 
 @unittest.skipIf(_models_build_portfolio is None, "models.portfolio_backtest 不可导入")
 class TestKnownDivergence(unittest.TestCase):
-    """钉住一个已核实的真实口径差异（2026-09-14 对账建设中发现的）。
+    """开仓门槛 `min_stocks` 的跨实现差异（已显式参数化）。
 
-    差异项：开仓所需的最小有效股数
+    差异项：`min_stocks = base * min_stocks_mult`，其中
+    `base = max(int(1/top_q), int(1/bottom_q))`（默认 top_q=bottom_q=0.2 → base=5）。
 
-        risk/portfolio.py::build_weight_portfolio       min_stocks = base * 2
-        models/portfolio_backtest.py::build_portfolio   min_stocks = base * 3
+        risk/portfolio.py::build_weight_portfolio       min_stocks_mult 默认 **2** → 10
+        models/portfolio_backtest.py::build_portfolio   min_stocks_mult 默认 **3** → 15
 
-    其中 base = max(int(1/top_q), int(1/bottom_q))，默认 top_q=bottom_q=0.2 → base = 5。
-    即阈值 10 vs 15。在 12 只股票的截面上：前者 12 ≥ 10 开仓，后者 12 < 15 空仓。
-
-    这**不是本次改动引入的问题**，也不在本次授权范围内修改 —— 统一阈值会改变
-    已发布报告的持仓日集合，须先评估影响再决策。本测试把差异钉住：任何一方
-    发生改动都会立即失败，迫使做一次有意识的决策，而不是悄悄漂移。
+    这**不是本次改动引入的问题**，也不擅自统一 —— 统一会改变已发布报告的持仓日集合，
+    须先量化影响再决策。参数化只做显式化：默认行为逐位不变。
     """
 
-    def test_min_stocks_threshold_divergence_is_pinned(self):
-        close, pred = synthetic_panel(n_days=200, n_syms=12, seed=23)
+    @staticmethod
+    def _panel_with_varying_coverage(n_days=200, n_syms=30, seed=31, lo=8, hi=18):
+        """让每日有效股数在 [lo, hi] 间波动，使 10 与 15 两个门槛都能被触发到。"""
+        close, pred = synthetic_panel(n_days=n_days, n_syms=n_syms, seed=seed)
+        rng = np.random.default_rng(seed + 1)
+        n_valid = rng.integers(lo, hi + 1, size=n_days)
+        for i in range(n_days):
+            k = n_syms - int(n_valid[i])
+            if k > 0:
+                pred.iloc[i, rng.choice(n_syms, size=k, replace=False)] = np.nan
+        return close, pred
 
+    def test_default_mult_is_2_and_3(self):
+        """默认值本身就是差异所在 —— 显式钉住，防止被无声改动。"""
+        import inspect
+
+        sig_risk = inspect.signature(build_weight_portfolio)
+        sig_models = inspect.signature(_models_build_portfolio)
+        self.assertEqual(sig_risk.parameters["min_stocks_mult"].default, 2)
+        self.assertEqual(sig_models.parameters["min_stocks_mult"].default, 3)
+
+    def test_threshold_divergence_is_real(self):
+        close, pred = self._panel_with_varying_coverage()
         r_risk = build_weight_portfolio(
             pred, close, top_q=TOP_Q, bottom_q=BOTTOM_Q, hold_days=HOLD_DAYS)
-        self.assertGreater(float(r_risk["turnover"].sum()), 0.0,
-                           "risk/portfolio 阈值更宽，12 只股票时应开仓")
-
         r_models = _models_build_portfolio(
             pred, close, top_q=TOP_Q, bottom_q=BOTTOM_Q, hold_days=HOLD_DAYS)
-        self.assertEqual(float(r_models["turnover"].sum()), 0.0,
-                         "models 阈值更严，12 只股票时应空仓")
+        # 门槛更宽的 risk 版应在更多交易日开仓
+        self.assertGreater(float(r_risk["turnover"].sum()),
+                           float(r_models["turnover"].sum()))
+
+    def test_divergence_disappears_when_mult_is_unified(self):
+        """把倍数显式对齐后两条实现必须逐位一致 —— 证明差异**只**来自该参数。"""
+        close, pred = self._panel_with_varying_coverage()
+        r_risk = build_weight_portfolio(
+            pred, close, top_q=TOP_Q, bottom_q=BOTTOM_Q, hold_days=HOLD_DAYS,
+            min_stocks_mult=3)
+        r_models = _models_build_portfolio(
+            pred, close, top_q=TOP_Q, bottom_q=BOTTOM_Q, hold_days=HOLD_DAYS,
+            min_stocks_mult=3)
+        assert_books_equal(r_risk, r_models)
+
+    def test_mult_must_be_positive(self):
+        """0 会静默关闭开仓门槛 —— 必须 raise 而不是继续跑。"""
+        close, pred = synthetic_panel(n_days=60, n_syms=30, seed=37)
+        with self.assertRaises(ValueError):
+            build_weight_portfolio(pred, close, hold_days=HOLD_DAYS, min_stocks_mult=0)
+        with self.assertRaises(ValueError):
+            _models_build_portfolio(pred, close, hold_days=HOLD_DAYS, min_stocks_mult=0)
 
 
 class TestAssertionsWiredIntoBacktest(unittest.TestCase):

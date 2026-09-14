@@ -51,6 +51,7 @@ BOTTOM_Q = 0.20
 from backtest.invariants import (  # noqa: E402  输入契约断言
     assert_cost_params,
     assert_price_panel,
+    assert_result_sane,
     assert_weight_matrix,
 )
 from risk.cost_model import BUY_COST, ROUND_TRIP, SELL_COST  # noqa: E402
@@ -73,6 +74,14 @@ def load_data():
     pred_lgb = pd.read_csv(pred_path, index_col=0, parse_dates=True)
 
     x_path = FEATURE_DIR / "X_matrix.csv"
+    if not x_path.exists():
+        # 该文件是「大文件生成物」，被 .gitignore「特征矩阵」段有意排除（非缺失、非误删）。
+        raise FileNotFoundError(
+            f"缺少特征矩阵 {x_path}\n"
+            "  原因：大文件生成物不入版本库（.gitignore「特征矩阵」段）。\n"
+            "  生成：python strategies/feature_selection/build_pit_matrix.py\n"
+            "  既有规避：models/rerun_portfolio_backtest.py（改用 hs300 矩阵）"
+        )
     X_raw = pd.read_csv(x_path, dtype=str)
     X_raw["date"] = pd.to_datetime(X_raw["date"])
     stock_col = X_raw.columns[1]
@@ -123,6 +132,7 @@ def build_portfolio(
     buy_cost: float = BUY_COST,
     sell_cost: float = SELL_COST,
     hold_days: int = 5,
+    min_stocks_mult: int = 3,
     position_scale: pd.Series | None = None,
     gate: pd.Series | None = None,
     return_flows: bool = False,
@@ -150,6 +160,9 @@ def build_portfolio(
          cost 参数保留向后兼容（双边合计，传入时 buy_cost=sell_cost=cost/2）。
 
     position_scale: 可选的逐日仓位系数（post-multiply，乘在 W_held 上；如高波动降半仓）。
+    min_stocks_mult: 最小有效股数倍数 `min_stocks = base * min_stocks_mult`（默认 3）。
+        与 `risk/portfolio.py::build_weight_portfolio` 的默认 2 **不同**，属历史遗留差异
+        （见 docs/回测语义对照表.md「已知局限」③）。本参数只做显式化，不改变默认行为。
     gate: 可选的逐日 regime 闸门（pre-multiply，乘在 W_target 上、rolling 之前）。
           gate-off（0）日不开新 tranche，闸门开启后持仓用 hold 天爬坡——语义是
           "闸门关闭期间策略空仓，不纸上建仓"（P2 熊市做空端主口径）。
@@ -184,7 +197,9 @@ def build_portfolio(
     #   4) top/bottom 等权 1/n，权重按行归一。
     W_target = pd.DataFrame(0.0, index=common_dates, columns=common_cols)
     valid_count = p.notna().sum(axis=1)
-    min_stocks = max(int(1 / top_q), int(1 / bottom_q)) * 3
+    if min_stocks_mult < 1:
+        raise ValueError(f"min_stocks_mult 必须 ≥ 1，得到 {min_stocks_mult}（0 会静默关闭开仓门槛）")
+    min_stocks = max(int(1 / top_q), int(1 / bottom_q)) * min_stocks_mult
     eligible = valid_count >= min_stocks
 
     if eligible.any():
@@ -237,6 +252,10 @@ def build_portfolio(
 
     df = pd.DataFrame({"port_ret": port_ret, "turnover": turnover.reindex(port_ret.index)})
     df["cum"] = cum
+
+    # 输出端契约：结果合理性（只断言必然错误，不判断指标好坏）
+    assert_result_sane(df)
+
     if return_weights:
         return df, W_held.reindex(port_ret.index)
     if return_flows:

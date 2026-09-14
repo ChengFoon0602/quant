@@ -36,6 +36,7 @@ import pandas as pd
 from backtest.invariants import (  # 输入契约断言（零项目内依赖）
     assert_cost_params,
     assert_price_panel,
+    assert_result_sane,
     assert_weight_matrix,
 )
 from risk.cost_model import BUY_COST, SELL_COST  # 费率单一真源（2026-09-09 迁移）
@@ -53,7 +54,10 @@ class PortfolioOrchestrator:
     rebalance : str
         调仓频率 "monthly" | "weekly" | "quarterly"。
     max_leverage : float
-        组合总杠杆上限（|sum(W)| 的绝对值上限），默认 1.0（纯多头满仓）。
+        组合**总杠杆**上限（`Σ|W|`，即 gross leverage），默认 1.0（纯多头满仓）。
+        ⚠️ 注意与「净敞口 `|ΣW|`」的区别：多空对冲组合的 `Σ|W|` 约为两腿之和，
+        各 1.0 时合计 2.0。因此 LS 策略须显式传 `max_leverage=2.0`，
+        否则会被按比例缩放到半个仓位（约束是静默生效的，不会报错）。
     max_weight_per_asset : Optional[float]
         单资产权重上限（绝对值），默认 None 不限制。
     max_turnover : Optional[float]
@@ -218,6 +222,9 @@ class PortfolioOrchestrator:
             "port_ret": port_ret,
             "cum": cum,
         })
+
+        # 输出端契约：结果合理性（只断言必然错误，不判断指标好坏）
+        assert_result_sane(result)
 
         if return_weights:
             return result, W_held

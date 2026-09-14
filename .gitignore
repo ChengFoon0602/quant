@@ -19,6 +19,7 @@ venv/
 *.output
 report_output.txt
 *.log
+reconciliation_report.txt
 
 # IDE
 .vscode/

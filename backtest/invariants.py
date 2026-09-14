@@ -43,6 +43,7 @@ __all__ = [
     "assert_returns_panel",
     "assert_weight_matrix",
     "assert_cost_params",
+    "assert_result_sane",
     "assert_backtest_inputs",
 ]
 
@@ -74,7 +75,11 @@ def _as_frame(x: Union[pd.DataFrame, pd.Series], name: str) -> pd.DataFrame:
 
 
 def assert_price_panel(close, *, name: str = "close_matrix") -> None:
-    """价格面板契约：索引有序且唯一、价格非负、无全 NaN 列。"""
+    """价格面板契约：索引有序且唯一、价格非负、无全 NaN 列。
+
+    ⚠️ 本函数用于**价格**面板。收益面板含负值是正常的，请改用
+    `assert_returns_panel`——把收益面板喂进来会因负收益而误报。
+    """
     df = _as_frame(close, name)
     if df.shape[0] < 2 or df.shape[1] < 1:
         _fail(f"{name}: 形状非法 {df.shape}（需 ≥2 行、≥1 列）")
@@ -169,3 +174,47 @@ def assert_backtest_inputs(close, *, buy_cost=None, sell_cost=None) -> None:
         _fail("assert_backtest_inputs: buy_cost / sell_cost 必须同时给出")
     if buy_cost is not None:
         assert_cost_params(buy_cost, sell_cost)
+
+
+_RESULT_REQUIRED = ("port_ret",)
+
+
+def assert_result_sane(res, *, name: str = "res") -> None:
+    """回测结果的合理性契约（输出端）：只断言**必然错误**。
+
+    - 必需列齐备（`port_ret`）；
+    - `port_ret` 不含 ±inf，且不全为 NaN（全 NaN = 输入未对齐或被整体丢弃）；
+    - `turnover` / `cost`（若存在）非负；
+    - `cum`（若存在）恒为正 —— 净值不可能非正。
+
+    ⚠️ **不**断言 `|Sharpe| < 3`。那是**可疑信号**而非不变量：夏普 8.75 是 bug，
+    但 3.5 也可能是低波动资产的真实值。把它变成 raise 要么误伤正常研究，要么逼人开开关
+    （而 E1 明确「不设全局开关」）。该判据保留在 `CLAUDE.md`「数值验证标准」的人工检查清单里。
+    """
+    if not isinstance(res, pd.DataFrame):
+        _fail(f"{name}: 期望 DataFrame，得到 {type(res).__name__}")
+
+    missing = [c for c in _RESULT_REQUIRED if c not in res.columns]
+    if missing:
+        _fail(f"{name}: 缺少必需列 {missing}")
+
+    pr = res["port_ret"].to_numpy(dtype=float)
+    if np.isinf(pr).any():
+        _fail(f"{name}.port_ret: 存在 {int(np.isinf(pr).sum())} 个 ±inf")
+    if pr.size == 0:
+        _fail(f"{name}.port_ret: 为空 —— 回测未产出任何有效区间（查日期交集与 hold_days）")
+    if not np.isfinite(pr).any():
+        _fail(f"{name}.port_ret: 全为 NaN —— 输入未对齐或被整体丢弃")
+
+    for col in ("turnover", "cost"):
+        if col in res.columns:
+            v = res[col].to_numpy(dtype=float)
+            fv = v[np.isfinite(v)]
+            if fv.size and (fv < -_TOL).any():
+                _fail(f"{name}.{col}: 存在负值（最小 {fv.min():.3e}）—— {col} 必非负")
+
+    if "cum" in res.columns:
+        v = res["cum"].to_numpy(dtype=float)
+        fv = v[np.isfinite(v)]
+        if fv.size and (fv <= 0).any():
+            _fail(f"{name}.cum: 存在非正净值（最小 {fv.min():.3e}）")
