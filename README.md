@@ -110,7 +110,7 @@ python report.py                       # 生成回测报告
 
 python run_reconciliation.py           # 真实报告数据账本对账（790 票，约 10s）
 python run_tradability_impact.py       # 交易约束代价量化（4 条链路，约 40s）
-python run_slippage_impact.py          # 滑点影响量化（4 条链路，约 50s）
+python run_slippage_impact.py          # 滑点敏感性网格（4 条链路，约 40s）
 python run_drawdown_control.py         # 回撤控制参数网格 + 前沿对比（790 票，约 25s）
 python run_drawdown_walk_forward.py    # 回撤控制 walk-forward 复核（790 票，约 30s）
 ```
