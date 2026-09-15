@@ -591,6 +591,31 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
     **实测**：`oof_predictions_pit_select.csv` 11 窗 / 覆盖 2674 天 /
     **覆盖率 1.0000** / 窗间缺口 0 / 非交易日 0 → 产物干净。
 
+    ### ⏳ 审查发现（2026-09-15，待定夺）
+
+23. ⚠️ **滑点未进主口径（与 `max_turnover` 同类失效模式）**：
+    `risk/cost_model.py::SLIPPAGE = 0.0005`（单边万 5）已定义，`CostModel.with_slippage()`
+    也已实现 —— 但**零生产调用**：全仓 grep 显示只有 `models/evaluate.py` 显式加了
+    `2 * SLIPPAGE`，而 `build_weight_portfolio` / `build_portfolio` 的组合级成本**只有**
+    `BUY_COST=0.00026` / `SELL_COST=0.00076`（注释明确「另计，不并入 ROUND_TRIP」）。
+    **量级**：单边万 5 → 双边 0.1%，与佣金+印花税双边 0.102% **近乎等量** ——
+    即真实摩擦可能是已计成本的两倍。而所有已发布夏普（1.175 / 1.214 / 2.995 / 1.906 …）
+    **都不含滑点**。另：对外材料 `generate_pdf.py` 自称「0.1% bilateral + 0.05% daily
+    slippage」，与代码不符（该文件在 gitignore 内）。
+    **建议**：先量化「加滑点后各链路夏普」（基础设施已有，成本极低），再决定是否改铁律 3。
+24. **容量检验未含涨跌停约束与滑点**：`strategies/zz500_pit_trial/capacity.py` 的
+    sqrt 冲击法则（`impact_returns`，k=0.5 + participation cap）**已实现**，
+    但其基准组合是 `build_portfolio(...)` —— 既无 `trade_limits` 也无滑点。
+    「容量上限 < 0.5 亿」是 P1 判决的关键依据，该结论**偏乐观**，需重估。
+25. **其余组合类报告未补涨跌停注记**：已补 3 份（`models` / `zz500_pit_trial` /
+    `zz500_fundamental_trial`，均为实测过的链路）。未补清单：
+    `hs300_crowding_trial`、`etf_momentum_crowding`、`all_weather_risk_parity`、
+    `alpha001_trial`、`multi_factor_trial`、`factor_discovery`、`zz500_crowding_trial`。
+    其中 `ma_crossover` 是**单票时序**（`engine.run`），横截面掩码不适用。
+    全局声明已存在于 `docs/回测语义对照表.md` §5 与 README。
+26. **无测试覆盖率度量**；`tests/cross_validate_alpha191.py` 不匹配 `test_*.py`
+    因而不进 CI（属离线脚本，但位置在 `tests/` 下易误解）。
+
     **边界扫描（2026-09-15，`run_drawdown_control.py` 第三节）**：把连续族 `max_cut_at`
     下探到 **0.002 / 0.005 / 0.008 / 0.012**，并新增「调杠杆成本」列。
 
