@@ -11,12 +11,22 @@ test_tradability.py — 交易可行性度量的回归测试（risk/tradability.
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
 
-from risk.tradability import build_trade_limits, measure_restriction_impact
+from backtest.reconciliation import assert_closed
+from data import fetcher
+from risk.portfolio import build_weight_portfolio
+from risk.tradability import (
+    build_trade_limits,
+    build_trade_limits_from_cache,
+    measure_restriction_impact,
+)
 
 HOLD_DAYS = 5
 
@@ -70,6 +80,49 @@ class TestBuildTradeLimits(unittest.TestCase):
         self.assertEqual(down.shape, close.shape)
 
 
+class TestBuildTradeLimitsFromCache(unittest.TestCase):
+    """一步到位的接入路径：新策略一次调用即可拿到 trade_limits。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.addCleanup(self.td.cleanup)
+        self.dir = Path(self.td.name)
+        # 110 个交易日 ≥ load_field_panel 默认 min_rows=100
+        dates = pd.bdate_range("2021-01-01", periods=110)
+        close = pd.Series(100.0, index=dates)
+        close.iloc[10:] = 90.0  # 第 10 个交易日起跌到 90 → 相对前收盘 −10%
+        self.dates = dates
+        px = pd.DataFrame({"open": close, "high": close, "low": close, "close": close,
+                           "volume": 1e6, "amount": 1e8}, index=dates)
+        px.reset_index(names="date").to_csv(self.dir / "600000.csv", index=False)
+
+        patcher = mock.patch.object(
+            fetcher, "_cache_path",
+            side_effect=lambda s, adjust="2": self.dir / f"{s}.csv")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_matches_the_two_step_call(self):
+        """一步版必须与「先 load_field_panel 再 build_trade_limits」逐位一致。"""
+        up, down = build_trade_limits_from_cache(["600000"])
+        panel = fetcher.load_field_panel(
+            ["600000"], fields=("open", "high", "low", "close"))
+        up2, down2 = build_trade_limits(
+            panel["open"], panel["high"], panel["low"], panel["close"])
+        pd.testing.assert_frame_equal(up, up2)
+        pd.testing.assert_frame_equal(down, down2)
+
+    def test_detects_limit_down_via_shift(self):
+        _, down = build_trade_limits_from_cache(["600000"])
+        self.assertTrue(bool(down.iloc[10, 0]), "相对前收盘 −10% 一字 → 跌停锁")
+        self.assertFalse(bool(down.iloc[9, 0]), "跌停前一日不应被判锁")
+
+    def test_shape_follows_the_shared_symbol_set(self):
+        up, down = build_trade_limits_from_cache(["600000", "999999"])
+        self.assertEqual(list(up.columns), ["600000"])
+        self.assertEqual(up.shape, down.shape)
+
+
 class TestMeasureRestrictionImpact(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -108,6 +161,36 @@ class TestMeasureRestrictionImpact(unittest.TestCase):
         expected = (float(table.loc["restricted", "total_turnover"])
                     - float(table.loc["unrestricted", "total_turnover"]))
         self.assertAlmostEqual(float(table.loc["delta", "total_turnover"]), expected, places=9)
+
+
+class TestRestrictedBookStillCloses(unittest.TestCase):
+    """加涨跌停约束后账本仍须闭合 —— 覆盖层不能破坏清算恒等。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.close, cls.pred = _synthetic_panel()
+
+    def test_restricted_book_closes(self):
+        up = _mask(self.close, False)
+        up.iloc[:, ::3] = True      # 1/3 标的一字涨停（禁买）
+        down = _mask(self.close, False)
+        down.iloc[:, 1::3] = True    # 另 1/3 一字跌停（禁卖）
+        res, w = build_weight_portfolio(
+            self.pred, self.close, hold_days=HOLD_DAYS,
+            trade_limits=(up, down), return_weights=True)
+        gaps = assert_closed(res, w, self.close)
+        self.assertLess(max(gaps.values()), 1e-9)
+
+    def test_restricted_book_differs_from_unrestricted(self):
+        """确认掩码确实生效（否则上面的闭合是空转）。"""
+        up = _mask(self.close, True)
+        down = _mask(self.close, False)
+        _, w_free = build_weight_portfolio(
+            self.pred, self.close, hold_days=HOLD_DAYS, return_weights=True)
+        _, w_lock = build_weight_portfolio(
+            self.pred, self.close, hold_days=HOLD_DAYS,
+            trade_limits=(up, down), return_weights=True)
+        self.assertFalse(np.allclose(w_free.values, w_lock.values))
 
 
 if __name__ == "__main__":

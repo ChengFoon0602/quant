@@ -31,13 +31,15 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from backtest.invariants import assert_weight_matrix
+from backtest.invariants import InvariantViolation, assert_weight_matrix
 from risk.cost_model import BUY_COST, SELL_COST
+from risk.drawdown_control import relevering_cost
 
 # 对账容差：各实现均用同一套 pandas 向量运算，浮点误差应在 1e-12 量级
 TOL: float = 1e-10
 
-__all__ = ["TOL", "reconcile_from_weights", "assert_closed", "assert_books_equal"]
+__all__ = ["TOL", "reconcile_from_weights", "assert_closed", "assert_books_equal",
+           "close_overlay_ledger", "assert_overlay_closed"]
 
 
 def reconcile_from_weights(
@@ -178,4 +180,111 @@ def assert_books_equal(
         gaps[k] = gap
         if not (gap <= tol):
             raise AssertionError(f"跨实现账本不一致[{k}]：最大偏差 {gap:.3e} > {tol:.1e}")
+    return gaps
+
+
+def close_overlay_ledger(
+    raw_ret: pd.Series,
+    scale: pd.Series,
+    *,
+    gross: float = 2.0,
+    buy_cost: float = BUY_COST,
+    sell_cost: float = SELL_COST,
+) -> pd.DataFrame:
+    """合成**覆盖层**（仓位缩放 + 现金）的三层账本 —— 覆盖层下的清算独立重算。
+
+    一层账本挡不住覆盖层。加上回撤控制后，账本必须拆成三层：
+
+        仓位账  `position_ret = scale × raw_ret`
+                （持仓按 `scale` 等比缩放，毛收益与资产级费用同比例缩放）
+        费用账  `relever_cost = |Δscale| × gross × 费率`
+                （调杠杆本身要再交易一次：增仓按买入费率、减仓按卖出费率。
+                  这一层**不在** `raw_ret` 里，也**不在** `scale × raw_ret` 里）
+        现金账  `cash_ret = (1 − scale) × 0`
+                （未投入部分按现金处理。**零息是本框架的显式约定，不是事实** ——
+                  若要计货基收益，必须单独建模，不能塞进本恒等式）
+
+    `净收益 = 仓位账 − 费用账 + 现金账`
+
+    ⚠️ 本函数的用途是**暴露缺口**：`risk.drawdown_control` 的两个控制函数只产出
+    **仓位账**（`scale × raw_ret`），**没有记费用账**。因此直接把它们的
+    `controlled_ret` 当作净收益，覆盖层清算就**不闭合**，差额恰好等于 `relever_cost`
+    （`assert_overlay_closed` 会把这个差额指出来）。
+    实测量级：夏普被高估 0.15~0.18（见 `run_drawdown_control.py` 边界扫描）。
+
+    Returns
+    -------
+    pd.DataFrame
+        columns: `position_ret` / `relever_cost` / `cash_ret` / `net_ret` / `cash_weight`。
+    """
+    raw = pd.Series(raw_ret)
+    sc = pd.Series(scale).reindex(raw.index).fillna(1.0)
+    if not bool(((sc >= 0.0) & (sc <= 1.0)).all()):
+        raise InvariantViolation("scale（仓位系数）必须落在 [0, 1]")
+
+    position_ret = sc * raw
+    relever = relevering_cost(sc, gross=gross, buy_cost=buy_cost, sell_cost=sell_cost)
+    cash_ret = (1.0 - sc) * 0.0
+
+    return pd.DataFrame({
+        "position_ret": position_ret,
+        "relever_cost": relever,
+        "cash_ret": cash_ret,
+        "net_ret": position_ret - relever + cash_ret,
+        "cash_weight": 1.0 - sc,
+    })
+
+
+def assert_overlay_closed(
+    res: pd.DataFrame,
+    raw_ret: pd.Series,
+    scale: pd.Series,
+    *,
+    gross: float = 2.0,
+    buy_cost: float = BUY_COST,
+    sell_cost: float = SELL_COST,
+    tol: float = TOL,
+) -> dict[str, float]:
+    """覆盖层清算闭合：`res` 的净收益必须等于三层账本的合成结果；失败即 raise。
+
+    Parameters
+    ----------
+    res : pd.DataFrame
+        待验证的受控账本，须含 `port_ret`（无则取 `net_ret`）。
+    raw_ret : pd.Series
+        **未加覆盖层**的原始净收益（即 `scale ≡ 1` 时的账本）。
+    scale : pd.Series
+        逐日仓位系数。
+    gross : float
+        被缩放账本的总杠杆 `Σ|w|`（LS 约 2.0，纯多约 1.0）。
+    tol : float
+        容差。
+
+    Returns
+    -------
+    dict[str, float]
+        各层最大绝对偏差，供报告使用。
+    """
+    ledger = close_overlay_ledger(raw_ret, scale, gross=gross,
+                                 buy_cost=buy_cost, sell_cost=sell_cost)
+    col = "port_ret" if "port_ret" in res.columns else "net_ret"
+    if col not in res.columns:
+        raise InvariantViolation(f"res 缺少 net_ret/port_ret 列，实际列：{list(res.columns)}")
+
+    gaps = {
+        "net_ret": _max_abs_gap(res[col], ledger["net_ret"], ledger.index),
+        "position_ret": _max_abs_gap(res[col], ledger["position_ret"], ledger.index),
+    }
+    if gaps["net_ret"] > tol:
+        lever = float(ledger["relever_cost"].sum())
+        cash = float(ledger["cash_weight"].mean())
+        hint = ""
+        if lever > tol:
+            hint = (f"\n  费用账（调杠杆成本）合计 {lever:.6f}，平均现金占比 {cash:.3f}。"
+                    "\n  ⚠️ 若 res 直接取自 risk.drawdown_control 的 controlled_ret，"
+                    "**漏记的正是费用账这一层** ——"
+                    "\n     该模块只产出仓位账（scale × raw_ret）。补法："
+                    "`close_overlay_ledger(raw_ret, scale)['net_ret']`。")
+        raise AssertionError(
+            f"覆盖层清算不闭合：net_ret 最大偏差 {gaps['net_ret']:.3e} > {tol:.1e}{hint}")
     return gaps

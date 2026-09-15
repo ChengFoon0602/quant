@@ -30,7 +30,36 @@ import pandas as pd
 from backtest.metrics import annualize_cagr, max_drawdown, sharpe_ratio
 from risk.portfolio import build_weight_portfolio, detect_limit_moves
 
-__all__ = ["build_trade_limits", "measure_restriction_impact"]
+__all__ = ["build_trade_limits", "build_trade_limits_from_cache", "measure_restriction_impact"]
+
+
+def build_trade_limits_from_cache(
+    symbols,
+    *,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    st_symbols: Optional[set] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """一步到位：从本地缓存读 OHLC 面板并推导 `(一字涨停锁, 一字跌停锁)`。
+
+    新策略接入涨跌停约束只需一次调用：
+
+        limits = build_trade_limits_from_cache(close_matrix.columns, start=START, end=END)
+        res = build_weight_portfolio(pred, close_matrix, hold_days=5, trade_limits=limits)
+
+    代价量级见 `run_tradability_impact.py`（跨 4 条链路：换手几乎不变、夏普相对 −3%~−12%）。
+
+    Notes
+    -----
+    内部按需 import `data.fetcher`，以免在模块加载期给 `risk` 引入 `data` 依赖
+    （本模块其余部分只是纯计算）。
+    """
+    from data.fetcher import load_field_panel
+
+    panel = load_field_panel(
+        symbols, fields=("open", "high", "low", "close"), start=start, end=end)
+    return build_trade_limits(
+        panel["open"], panel["high"], panel["low"], panel["close"], st_symbols=st_symbols)
 
 
 def build_trade_limits(

@@ -34,7 +34,12 @@ import numpy as np
 import pandas as pd
 
 from backtest.invariants import InvariantViolation, assert_weight_matrix
-from backtest.reconciliation import assert_books_equal, assert_closed
+from backtest.reconciliation import (
+    assert_books_equal,
+    assert_closed,
+    assert_overlay_closed,
+    close_overlay_ledger,
+)
 from risk.cost_model import BUY_COST, SELL_COST
 from risk.orchestrator import PortfolioOrchestrator
 from risk.portfolio import build_weight_portfolio
@@ -169,6 +174,73 @@ class TestCrossImplementationSemantics(unittest.TestCase):
         r2 = _models_build_portfolio(
             pred, close, top_q=TOP_Q, bottom_q=BOTTOM_Q, hold_days=HOLD_DAYS)
         assert_books_equal(r1, r2)
+
+
+class TestOverlayLedger(unittest.TestCase):
+    """覆盖层（仓位缩放 + 现金）的三层账本 —— 清算在覆盖层下的延伸。
+
+    核心断言：**只记仓位账 ≠ 闭合**，差额恰好等于费用账（调杠杆成本）。
+    """
+
+    @staticmethod
+    def _raw(n: int = 60, seed: int = 7) -> pd.Series:
+        rng = np.random.default_rng(seed)
+        return pd.Series(rng.normal(0.0005, 0.01, n),
+                         index=pd.bdate_range("2021-01-01", periods=n))
+
+    def test_ledger_has_three_layers(self):
+        raw = self._raw()
+        led = close_overlay_ledger(raw, pd.Series(0.5, index=raw.index))
+        for c in ("position_ret", "relever_cost", "cash_ret", "net_ret", "cash_weight"):
+            self.assertIn(c, led.columns)
+
+    def test_scale_one_is_identity(self):
+        """scale ≡ 1 → 仓位账 = 原始，费用账 = 0，现金账 = 0。"""
+        raw = self._raw()
+        led = close_overlay_ledger(raw, pd.Series(1.0, index=raw.index))
+        np.testing.assert_allclose(led["position_ret"].values, raw.values, rtol=0, atol=1e-15)
+        self.assertAlmostEqual(float(led["relever_cost"].sum()), 0.0, places=15)
+        self.assertAlmostEqual(float(led["net_ret"].sub(raw).abs().max()), 0.0, places=15)
+
+    def test_constant_scale_costs_nothing_to_hold(self):
+        raw = self._raw()
+        led = close_overlay_ledger(raw, pd.Series(0.4, index=raw.index))
+        self.assertAlmostEqual(float(led["relever_cost"].sum()), 0.0, places=15)
+        self.assertAlmostEqual(float(led["cash_weight"].iloc[0]), 0.6, places=15)
+
+    def test_position_ledger_omits_exactly_the_cost_ledger(self):
+        """关键缺口：仓位账 − 净收益 == 费用账（逐位）。"""
+        raw = self._raw()
+        sc = pd.Series(np.where(np.arange(len(raw)) % 7 < 3, 0.4, 1.0), index=raw.index)
+        led = close_overlay_ledger(raw, sc, gross=2.0)
+        gap = (led["net_ret"] - led["position_ret"]).abs()
+        np.testing.assert_allclose(gap.values, led["relever_cost"].values, rtol=0, atol=1e-15)
+
+    def test_full_ledger_passes(self):
+        raw = self._raw()
+        sc = pd.Series(np.where(np.arange(len(raw)) % 5 == 0, 0.5, 1.0), index=raw.index)
+        led = close_overlay_ledger(raw, sc, gross=2.0)
+        assert_overlay_closed(pd.DataFrame({"port_ret": led["net_ret"]}), raw, sc, gross=2.0)
+
+    def test_position_only_ledger_is_flagged(self):
+        """直接把 controlled_ret（= 仓位账）当净收益 → 必须失败，并指出漏了费用账。"""
+        raw = self._raw()
+        sc = pd.Series(np.where(np.arange(len(raw)) % 5 == 0, 0.5, 1.0), index=raw.index)
+        led = close_overlay_ledger(raw, sc, gross=2.0)
+        with self.assertRaises(AssertionError) as ctx:
+            assert_overlay_closed(pd.DataFrame({"port_ret": led["position_ret"]}), raw, sc)
+        self.assertIn("费用账", str(ctx.exception))
+
+    def test_scale_out_of_range_raises(self):
+        raw = self._raw()
+        with self.assertRaises(InvariantViolation):
+            close_overlay_ledger(raw, pd.Series(1.5, index=raw.index))
+
+    def test_scale_missing_dates_default_to_full_exposure(self):
+        raw = self._raw()
+        led = close_overlay_ledger(raw, pd.Series(0.5, index=raw.index[:10]))
+        self.assertAlmostEqual(float(led["cash_weight"].iloc[0]), 0.5, places=15)
+        self.assertAlmostEqual(float(led["cash_weight"].iloc[-1]), 0.0, places=15)
 
 
 @unittest.skipIf(_models_build_portfolio is None, "models.portfolio_backtest 不可导入")

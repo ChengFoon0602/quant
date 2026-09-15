@@ -222,9 +222,30 @@ mkdir -p strategies/multi_factor_trial/alphaXXX_alphaYYY
 6. **bootstrap_mc** — 收益率重采样检验统计显著性
 7. **cross_section** — 全市场截面检验 + Bonferroni 校正
 8. **survivorship** — 幸存者偏差讨论
-9. **tradability** — 涨跌停/停牌约束下的代价核验：`build_trade_limits` 造掩码 + `measure_restriction_impact` 出对照。**新策略默认执行**，报告中须给出约束前后的换手/年化/夏普/回撤对照（实测量级：夏普约 −7%、年化约 −1.6pp；⚠️ 只覆盖一字板，属**下界**）
+9. **tradability** — 涨跌停/停牌约束。**新策略默认执行**，一次调用即可接入：
 
-每步都有对应的代码模式在 `strategies/ma_crossover/` 下可参考。第 9 步的独立运行器见 `run_tradability_impact.py`。
+   ```python
+   limits = build_trade_limits_from_cache(close_matrix.columns, start=START, end=END)
+   res = build_weight_portfolio(pred, close, hold_days=5, trade_limits=limits)
+   ```
+
+   报告中须给出约束前后的换手/年化/夏普/回撤对照（跨 4 条链路实测量级：
+   换手 ≤ −0.07%、夏普相对 **−3%~−12%**；⚠️ 只覆盖一字板，属**下界**）。
+10. **drawdown overlay（可选，但必须「并列报告」）** — `risk/drawdown_control.py`。
+
+   ⚠️ **它不能替换主口径**。实测：夏普 1.48 → 2.15、最大回撤 −29.5% → −8.0%，
+   但 **CAGR 腰斩（27.5% → 13.4%）**、敞口降到 1/3。它是**风险-收益重配比**，不是保护层。
+   报告里要**同时**给出「未加覆盖层」与「加覆盖层」两组 headline 指标，并注明这是偏好选择。
+
+   固定参数、不要每期重选（WF 显示两态 `threshold` 在 3 个取值间跳 = 选择噪声大）：
+   `apply_drawdown_scaling(max_cut_at=0.02, floor=0.2)`（边界扫描的内部最优）。
+
+   ⚠️ 其输出是**仓位账**；完整净收益须走 `close_overlay_ledger`（见 `docs/回测语义对照表.md`
+   「覆盖层下的清算口径」）。
+
+每步都有对应的代码模式在 `strategies/ma_crossover/` 下可参考。
+独立运行器：第 9 步 → `run_tradability_impact.py`；第 10 步 → `run_drawdown_control.py`、
+`run_drawdown_walk_forward.py`。
 
 ## 工程开发流程
 

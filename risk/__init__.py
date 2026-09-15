@@ -29,6 +29,7 @@ from risk.crowding import (
 # 置于末尾：本模块 import risk.portfolio，须待其加载完成
 from risk.tradability import (
     build_trade_limits,
+    build_trade_limits_from_cache,
     measure_restriction_impact,
 )
 from risk.drawdown_control import apply_drawdown_control, apply_drawdown_scaling
@@ -52,6 +53,7 @@ __all__ = [
     "compute_composite_crowding",
     "detect_extreme_events",
     "build_trade_limits",
+    "build_trade_limits_from_cache",
     "measure_restriction_impact",
     "apply_drawdown_control",
     "apply_drawdown_scaling",

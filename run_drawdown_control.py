@@ -37,6 +37,7 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backtest.metrics import annualize_cagr, max_drawdown, sharpe_ratio  # noqa: E402
+from backtest.reconciliation import assert_overlay_closed, close_overlay_ledger  # noqa: E402
 from data.fetcher import CACHE_DIR, load_field_panel  # noqa: E402
 from risk.drawdown_control import (  # noqa: E402
     apply_drawdown_control,
@@ -256,6 +257,26 @@ def main() -> int:
         log(f"  ③ mca 越小，Σ|Δscale| 从 {marg['sum_dscale'].min():.1f} 升到 "
             f"{marg['sum_dscale'].max():.1f}（{marg['sum_dscale'].max() / max(marg['sum_dscale'].min(), 1e-9):.0f}×）；"
             "调杠杆成本随之放大。")
+
+        # ── 清算演示：受控账本目前只记了「仓位账」 ──
+        log("")
+        log("清算演示（覆盖层必须三层账本才闭合）:")
+        probe = apply_drawdown_scaling(base_ret, max_cut_at=0.02, floor=0.20)
+        ledger = close_overlay_ledger(base_ret, probe["scale"], gross=2.0)
+        try:
+            assert_overlay_closed(
+                pd.DataFrame({"port_ret": probe["controlled_ret"]}),
+                base_ret, probe["scale"], gross=2.0)
+            log("  ? 仓位账直接作净收益竟然通过了 —— 说明费用账为 0（不应发生）")
+        except AssertionError as exc:
+            log("  ✗ 把 controlled_ret（= 仓位账）直接当净收益 → 清算**不闭合**：")
+            log(f"     {str(exc).splitlines()[0]}")
+        assert_overlay_closed(
+            pd.DataFrame({"port_ret": ledger["net_ret"]}),
+            base_ret, probe["scale"], gross=2.0)
+        log("  ✓ 补上费用账与现金账（`close_overlay_ledger`）→ 闭合")
+        log(f"     费用账（调杠杆成本）合计 {float(ledger['relever_cost'].sum()):.6f}"
+            f" | 平均现金占比 {float(ledger['cash_weight'].mean()):.4f}")
 
         log("")
         log("读表须知（否则容易误读）:")
