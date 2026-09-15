@@ -38,7 +38,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from backtest.metrics import annualize_cagr, max_drawdown, sharpe_ratio  # noqa: E402
 from data.fetcher import CACHE_DIR, load_field_panel  # noqa: E402
-from risk.drawdown_control import apply_drawdown_control  # noqa: E402
+from risk.drawdown_control import apply_drawdown_control, apply_drawdown_scaling  # noqa: E402
 from risk.portfolio import build_weight_portfolio  # noqa: E402
 
 REPORT_PATH = PROJECT_ROOT / "drawdown_control_report.txt"
@@ -133,6 +133,66 @@ def main() -> int:
         log(f"  回撤变化       {(best['max_drawdown'] - base['max_drawdown']) * 100:+.2f} 个百分点")
         log(f"  最优是否在网格边界: 阈值={best.name.split()[0]}、仓位={best.name.split()[1]}"
             " —— 若落在边界，需扩大网格再判")
+
+        log("")
+        log("固定（两态滞后带）vs 自适应（连续映射）—— 匹配平均仓位后的**前沿**对比")
+        step_family = table.drop(index="baseline（无控制）")
+
+        cont_rows = []
+        for mca in (0.03, 0.05, 0.08, 0.12, 0.20, 0.30):
+            for fl in (0.3, 0.4, 0.5, 0.7):
+                ctl = apply_drawdown_scaling(base_ret, max_cut_at=mca, floor=fl)
+                cont_rows.append({
+                    "config": f"cont mca={mca:.2f} floor={fl:.1f}",
+                    "cagr": annualize_cagr(ctl["controlled_ret"]),
+                    "sharpe": sharpe_ratio(ctl["controlled_ret"]),
+                    "max_drawdown": max_drawdown(ctl["controlled_ret"]),
+                    "avg_scale": float(ctl["scale"].mean()),
+                })
+        cont = pd.DataFrame(cont_rows).set_index("config").sort_values(
+            "sharpe", ascending=False)
+        log("")
+        log(cont.head(6).to_string(float_format=lambda v: f"{v:,.4f}"))
+
+        # 在若干「平均仓位档」上各取两族最接近的方案，比较夏普 —— 比单点比较稳健
+        cmp_rows = []
+        for target in (0.55, 0.65, 0.75, 0.85):
+            s_hit = step_family.iloc[(step_family["avg_scale"] - target).abs().argsort()[:1]]
+            c_hit = cont.iloc[(cont["avg_scale"] - target).abs().argsort()[:1]]
+            s_sr, c_sr = float(s_hit["sharpe"].iloc[0]), float(c_hit["sharpe"].iloc[0])
+            cmp_rows.append({
+                "target_avg": target,
+                "step_cfg": str(s_hit.index[0]),
+                "step_avg": float(s_hit["avg_scale"].iloc[0]),
+                "step_sharpe": s_sr,
+                "cont_cfg": str(c_hit.index[0]),
+                "cont_avg": float(c_hit["avg_scale"].iloc[0]),
+                "cont_sharpe": c_sr,
+                "sharpe_diff": c_sr - s_sr,
+            })
+        cmp_df = pd.DataFrame(cmp_rows).set_index("target_avg")
+        log("")
+        log("匹配平均仓位后的前沿对比:")
+        log(cmp_df.to_string(float_format=lambda v: f"{v:,.4f}"))
+
+        n_win = int((cmp_df["sharpe_diff"] > 0).sum())
+        avg_diff = float(cmp_df["sharpe_diff"].mean())
+        log("")
+        log(f"  连续在 {n_win}/{len(cmp_df)} 个仓位档上更优；平均夏普差 {avg_diff:+.4f}")
+        if n_win >= 3:
+            log("  判定: 匹配仓位下**连续映射整体占优** —— 响应形态本身带信息量，")
+            log("        而非仅是「同一条前沿上的另一个点」。")
+            log("        机理: 两态开关在浅回撤时仍满仓（dd 从 0 掉到 −threshold 之间不动作），")
+            log("        连续映射则「早减、缓减」，能吃到回撤初段 —— 而回撤初段的减仓最有效。")
+        else:
+            log("  判定: 匹配仓位下两族无一致优劣 —— 差异主要来自降杠杆而非响应形态。")
+        log("")
+        log("  ⚠️ 两点提醒:")
+        log("    · 两族的参数都是在**同一段样本内**挑的，夏普都含样本内选择效应；")
+        log("      若要据此定稿，应做 walk-forward 或 out-of-sample 复核（铁律 5）。")
+        log("    · 「连续」只说明**响应**连续；**参数本身仍是固定的**。若让阈值随波动率")
+        log("      自适应（threshold_t = k·σ_t），会再引入 k 与 lookback 两个参数，")
+        log("      在样本内更容易拟合出好看的曲线 —— 前述提醒会更强。")
 
         log("")
         log("读表须知（否则容易误读）:")

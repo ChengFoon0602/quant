@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from backtest.metrics import max_drawdown, sharpe_ratio
-from risk.drawdown_control import apply_drawdown_control
+from risk.drawdown_control import apply_drawdown_control, apply_drawdown_scaling
 
 THRESHOLD = 0.10
 CUT = 0.5
@@ -119,6 +119,74 @@ class TestDegenerateCases(unittest.TestCase):
     def test_metrics_are_computable_on_output(self):
         out = apply_drawdown_control(_crash_series(), cut=CUT)
         self.assertTrue(np.isfinite(sharpe_ratio(out["controlled_ret"])))
+
+
+class TestAdaptiveContinuousScaling(unittest.TestCase):
+    """连续映射变体（apply_drawdown_scaling）—— 「自适应」形态。"""
+
+    def test_scale_within_bounds(self):
+        out = apply_drawdown_scaling(_crash_series(), max_cut_at=0.10, floor=0.4)
+        s = out["scale"]
+        self.assertGreaterEqual(float(s.min()), 0.4 - 1e-12)
+        self.assertLessEqual(float(s.max()), 1.0 + 1e-12)
+
+    def test_first_day_is_full(self):
+        out = apply_drawdown_scaling(_crash_series())
+        self.assertAlmostEqual(float(out["scale"].iloc[0]), 1.0)
+
+    def test_mapping_is_linear_in_drawdown(self):
+        """逐点核对文档给出的映射：scale = clip(1 + dd_prev/max_cut_at, floor, 1)。"""
+        out = apply_drawdown_scaling(_crash_series(), max_cut_at=0.20, floor=0.20)
+        expected = (1.0 + out["drawdown_prev"] / 0.20).clip(lower=0.20, upper=1.0)
+        np.testing.assert_allclose(out["scale"].values, expected.values, rtol=0, atol=1e-12)
+
+    def test_response_is_continuous_not_two_state(self):
+        """连续映射应产生大量不同取值 —— 这正是它与两态开关的本质差别。"""
+        r = _crash_series()
+        n_cont = int(apply_drawdown_scaling(r, max_cut_at=0.10, floor=0.4)["scale"].nunique())
+        n_step = int(apply_drawdown_control(r, threshold=0.10, cut=0.5)["scale"].nunique())
+        self.assertGreater(n_cont, 10)
+        self.assertLessEqual(n_step, 2)
+
+    def test_no_future_leak_truncation_invariance(self):
+        r = _crash_series()
+        full = apply_drawdown_scaling(r, max_cut_at=0.10, floor=0.4)["scale"]
+        prefix = apply_drawdown_scaling(r.iloc[:40], max_cut_at=0.10, floor=0.4)["scale"]
+        np.testing.assert_allclose(full.iloc[:40].values, prefix.values, rtol=0, atol=1e-15)
+
+    def test_floor_one_is_identity(self):
+        out = apply_drawdown_scaling(_crash_series(), max_cut_at=0.10, floor=1.0)
+        np.testing.assert_allclose(out["controlled_ret"].values, out["raw_ret"].values,
+                                   rtol=0, atol=1e-15)
+
+    def test_larger_max_cut_at_means_less_aggressive(self):
+        """max_cut_at 越大 → 同一回撤下减仓越少 → 平均仓位越高。"""
+        r = _crash_series()
+        tight = apply_drawdown_scaling(r, max_cut_at=0.05, floor=0.3)["scale"].mean()
+        loose = apply_drawdown_scaling(r, max_cut_at=0.30, floor=0.3)["scale"].mean()
+        self.assertGreater(float(loose), float(tight))
+
+    def test_controlled_equals_raw_times_scale(self):
+        out = apply_drawdown_scaling(_crash_series())
+        np.testing.assert_allclose(out["controlled_ret"].values,
+                                   (out["raw_ret"] * out["scale"]).values, rtol=0, atol=1e-15)
+
+    def test_shallower_drawdown_than_step_rule(self):
+        """连续映射会「早减、缓减」，因此最大回撤通常不深于不控制。"""
+        r = _crash_series()
+        out = apply_drawdown_scaling(r, max_cut_at=0.10, floor=0.4)
+        self.assertGreater(max_drawdown(out["controlled_ret"]), max_drawdown(r))
+
+    def test_parameter_validation(self):
+        r = _crash_series(n_up=5, n_down=5, n_rec=5)
+        with self.assertRaises(ValueError):
+            apply_drawdown_scaling(r, max_cut_at=0.0)
+        with self.assertRaises(ValueError):
+            apply_drawdown_scaling(r, floor=0.0)
+        with self.assertRaises(ValueError):
+            apply_drawdown_scaling(r, floor=1.2)
+        with self.assertRaises(ValueError):
+            apply_drawdown_scaling(pd.Series([], dtype=float))
 
 
 class TestParameterValidation(unittest.TestCase):

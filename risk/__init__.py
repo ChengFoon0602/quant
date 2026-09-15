@@ -31,7 +31,7 @@ from risk.tradability import (
     build_trade_limits,
     measure_restriction_impact,
 )
-from risk.drawdown_control import apply_drawdown_control
+from risk.drawdown_control import apply_drawdown_control, apply_drawdown_scaling
 
 __all__ = [
     "build_weight_portfolio",
@@ -54,4 +54,5 @@ __all__ = [
     "build_trade_limits",
     "measure_restriction_impact",
     "apply_drawdown_control",
+    "apply_drawdown_scaling",
 ]
