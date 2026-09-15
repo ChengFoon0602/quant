@@ -21,6 +21,7 @@ report_output.txt
 *.log
 reconciliation_report.txt
 tradability_report.txt
+drawdown_control_report.txt
 
 # IDE
 .vscode/

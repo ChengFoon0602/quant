@@ -222,8 +222,9 @@ mkdir -p strategies/multi_factor_trial/alphaXXX_alphaYYY
 6. **bootstrap_mc** — 收益率重采样检验统计显著性
 7. **cross_section** — 全市场截面检验 + Bonferroni 校正
 8. **survivorship** — 幸存者偏差讨论
+9. **tradability** — 涨跌停/停牌约束下的代价核验：`build_trade_limits` 造掩码 + `measure_restriction_impact` 出对照。**新策略默认执行**，报告中须给出约束前后的换手/年化/夏普/回撤对照（实测量级：夏普约 −7%、年化约 −1.6pp；⚠️ 只覆盖一字板，属**下界**）
 
-每步都有对应的代码模式在 `strategies/ma_crossover/` 下可参考。
+每步都有对应的代码模式在 `strategies/ma_crossover/` 下可参考。第 9 步的独立运行器见 `run_tradability_impact.py`。
 
 ## 工程开发流程
 
@@ -422,7 +423,11 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
     docstring 示例已移除该参数并注明未实现。理由：按 E1，不确定的行为必须响亮地失败，
     而不是静默放行（这正是铁律 3 成本 bug 的失效模式）。守护测试
     `tests/test_risk_constraints.py::TestUnimplementedParamsFailLoudly`。
-19. **交易可行性风控三件套零生产调用（事实，待你定夺是否接线）** —— 现已**量化出代价**：
+19. **交易可行性风控三件套零生产调用** —— ⚠️ **接线路径已就绪，是否接入仍待你定夺**：
+    全仓 grep 确认 `PortfolioOrchestrator` / `detect_limit_moves` / `apply_volatility_target`
+    仅出现在 `risk/` 自身与 `tests/`，**从未约束过任何已发布结论**。
+    （对比：`gate` 与 `position_scale` **确在生产** —— `etf_momentum_crowding` 的 MA20 避险、
+    `zz500_pit_trial/bear_short.py` 熊市门、`zz500_fundamental_trial/backtest_monthly.py` 月度门。）
 
     实测量（`run_tradability_impact.py`，真实 790 票 / 2010-2025 / LS hold_days=5）：
 
@@ -439,12 +444,35 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
     **判读**：约束代价**温和但不为零**——夏普 −7%、年化 −1.57pp，回撤略差。
     机理是「被拦住的恰是涨停追涨类交易」，对动量型 alpha 略有伤。
 
-    **建议（待你确认）**：**不回改已发布报告**（代价温和，回改成本远超收益）；
-    但**新策略默认开启** `trade_limits`，并把它写进标准分析流程。`risk/tradability.py::build_trade_limits`
-    已补上此前无人推导的前收盘价环节，接线只需一次调用。
-20. **无止损 / 回撤控制机制**：全仓 grep `stop_loss|止损|max_drawdown_limit|trailing_stop` 零命中。
-    日线级研究框架下「盘中止损」不适用，但**日频回撤控制**（如回撤触发降仓）是可做的，当前没有。
-    ⏳ **未做**——这是功能新增而非缺陷修复，触发阈值 / 减仓幅度 / 恢复规则都是设计选择，需先定参数。
+    **已就绪的接线路径（2026-09-15）**：
+    - `data/fetcher.py::load_field_panel` 统一了「从 cache 拼多标的面板」（此前散在各 runner 里重复）；
+    - `risk/tradability.py::build_trade_limits` 补上了此前无人推导的**前收盘价**环节；
+    - 「标准分析流程」已新增第 9 步 **tradability**，新策略默认核验约束代价。
+    **决策建议**：**不回改已发布报告**（代价温和，回改成本远超收益）；新策略默认开启。
+    ⚠️ 上表是**下界** —— `detect_limit_moves` 只识别**一字板**（开盘即触限价且 high==low），
+    盘中封板无法成交的情形未建模，真实代价更大。
+20. **回撤控制** —— ⚙️ **组件已建 + 参数网格已出，接入待你定夺**：
+    全仓 grep `stop_loss|止损|max_drawdown_limit|trailing_stop` 原为零命中。
+    新增 `risk/drawdown_control.py::apply_drawdown_control`（滞后带状态机、**闭环** ——
+    回撤在受控路径上计算，与实盘观察一致；决策只用截至前一日的回撤，无未来函数）
+    + `run_drawdown_control.py` 参数网格 + `tests/test_drawdown_control.py`（13 项）。
+    **不接入生产**（与 `gate` / `position_scale` 同属 opt-in）。
+
+    实测（真实 790 票 / LS / 2010-2025，`recovery = threshold/2`）：
+
+    | 配置 | 夏普 | CAGR | 最大回撤 | 平均仓位 |
+    |---|---|---|---|---|
+    | baseline（无控制） | 1.1753 | 19.10% | −37.17% | 1.000 |
+    | thr=0.03 cut=0.3 | **1.4491** | 10.52% | **−14.66%** | 0.567 |
+    | thr=0.05 cut=0.5 | 1.3058 | 14.06% | −22.44% | 0.759 |
+    | thr=0.15 cut=0.4 | 0.9504 | 10.93% | −24.64% | 0.796 |
+
+    **判读（关键，勿误读）**：
+    - 夏普对**常数**杠杆不变 → 夏普提升（+0.27）来自**择时减仓**，可与基线直接比较；
+    - 但 **CAGR 不可直接比**：受控组合平均仓位更低（0.567），收益下降含降杠杆成本；
+    - 本网格单调：**减仓越深 → 夏普越高、回撤越浅、绝对收益越低**。
+      这不是「最优解在角落」，而是**风险偏好问题**，继续外推只会更极端。
+    - ⏳ 因此**接入与否、用哪组参数，是风险偏好决策**，不由数据单独决定。
 21. ~~**风控拦截缺少代价度量**~~ ✅ **已收口（2026-09-15）**：
     新增 `risk/tradability.py`（`build_trade_limits` 补上前收盘价推导 +
     `measure_restriction_impact` 两条账本对比）与 `run_tradability_impact.py`；

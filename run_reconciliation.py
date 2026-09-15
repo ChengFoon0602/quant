@@ -43,7 +43,7 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backtest.reconciliation import assert_books_equal, assert_closed  # noqa: E402
-from data.fetcher import CACHE_DIR, load_daily  # noqa: E402
+from data.fetcher import CACHE_DIR, load_field_panel  # noqa: E402
 from risk.portfolio import build_weight_portfolio  # noqa: E402
 
 try:
@@ -74,18 +74,7 @@ def load_real_panel(n_syms: int | None = None,
     if n_syms:
         syms = syms[:n_syms]
 
-    data: dict[str, pd.Series] = {}
-    for i, s in enumerate(syms):
-        df = load_daily(str(s))
-        if df is None or "close" not in df.columns:
-            continue
-        s_close = df.loc[(df.index >= start) & (df.index <= end), "close"]
-        if len(s_close) >= 100:
-            data[str(s)] = s_close
-        if (i + 1) % 200 == 0:
-            print(f"  ...已加载 {i + 1}/{len(syms)} 只")
-
-    close = pd.DataFrame(data).sort_index()
+    close = load_field_panel(syms, fields=("close",), start=start, end=end)["close"]
     common_idx = pred.index.intersection(close.index)
     common_cols = pred.columns.intersection(close.columns)
     return pred.loc[common_idx, common_cols], close.loc[common_idx, common_cols]

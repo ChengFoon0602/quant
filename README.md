@@ -14,13 +14,14 @@ quant/
 │   └── cache_*/              # CSV 缓存（不入 git，可增量更新）
 ├── signals/                  # 因子库：alpha191、基本面 factors、横截面正交化
 ├── backtest/                 # 向量化回测引擎 + metrics（CAGR/Sharpe 口径）+ invariants（契约断言）+ reconciliation（账本对账）
-├── risk/                     # 组合构建（权重追踪法）+ cost_model 成本真源 + 约束编排（orchestrator）+ 拥挤度 + 交易可行性度量（tradability）
+├── risk/                     # 组合构建（权重追踪法）+ cost_model 成本真源 + 约束编排（orchestrator）+ 拥挤度 + 交易可行性（tradability）+ 回撤控制（drawdown_control）
 ├── strategies/               # 策略研究：每子目录 = report.md + report.py + figures/
 ├── models/                   # ML 非线性合成（LightGBM）+ Walk-Forward + 方法论修正记录
-├── tests/                    # 224 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
+├── tests/                    # 247 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
 ├── docs/                     # 口径论证、回测语义对照表、实施计划
 ├── run_reconciliation.py     # 真实数据账本对账（离线运行器 → reconciliation_report.txt）
 ├── run_tradability_impact.py # 交易约束代价量化（离线运行器 → tradability_report.txt）
+├── run_drawdown_control.py   # 回撤控制参数网格（离线运行器 → drawdown_control_report.txt）
 ├── viz/                      # 可视化工具
 └── bootstrap.py              # 首次数据拉取脚本
 ```
@@ -75,10 +76,11 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 | **时点契约** | `tests/test_time_point_contract.py`：手算场景同时钉住信号可用 / 订单生效 / 成本发生 / 收益归属四个时点 |
 | **成交假设断言** | `tests/test_execution_assumptions.py`：涨跌停识别（主板/创业板/ST/北交所）+ **撮合层真拦单**；`test_price_adjust.py` 锁死三复权不共用文件 |
 | **未实现参数守卫** | `tests/test_risk_constraints.py`：`max_turnover` 等未实现的约束必须 `raise`，不允许静默忽略；`max_leverage` 语义锁死为 gross（`Σ\|W\|`）|
-| **交易可行性度量** | `risk/tradability.py` + `run_tradability_impact.py`：量化涨跌停约束的代价（实测夏普 −7%、年化 −1.57pp）|
+| **交易可行性度量** | `risk/tradability.py` + `run_tradability_impact.py`：量化涨跌停约束的代价（实测夏普 −7%、年化 −1.57pp，**下界**）|
+| **回撤控制（opt-in）** | `risk/drawdown_control.py` + `run_drawdown_control.py`：滞后带状态机、闭环、无未来函数；参数网格实测夏普 +0.27 / 回撤减 22.5pp（代价是平均仓位降至 0.57）。**未接入生产** |
 | **PIT 自检** | `data/pit_auditor.py` + `run_pit_audit.py` 离线审计基本面缓存日期约定 |
 | **向量化引擎** | `build_portfolio` 权重构造向量化（27×，等价性测试逐位守护） |
-| **测试规模** | 224 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、时点契约、成交假设、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
+| **测试规模** | 247 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、时点契约、成交假设、面板构建、约束守卫、回撤控制、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
 
 > 驱动这些收口的两轮评审发现：成本守护测试此前是「空转」（自声明常量测算术，从不 import 真实代码）、
 > 基本面缓存存在 100× 尺度污染、Walk-Forward 隐藏调用点仍传 0.3% 成本——均已被修正并加守护。
@@ -100,12 +102,13 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 pip install -r requirements.txt
 
 python bootstrap.py                    # 拉取沪深 300 全量日线（首启）
-python -m unittest discover -s tests   # 224 项回归测试
+python -m unittest discover -s tests   # 247 项回归测试
 cd strategies/ma_crossover
 python report.py                       # 生成回测报告
 
 python run_reconciliation.py           # 真实报告数据账本对账（790 票，约 10s）
 python run_tradability_impact.py       # 交易约束代价量化（790 票，约 20s）
+python run_drawdown_control.py         # 回撤控制参数网格（790 票，约 25s）
 ```
 
 > 数据已缓存在 `data/cache_*`（日线 + 基本面 + ETF + 指数成分），fetcher 负责增量更新。

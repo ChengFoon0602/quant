@@ -33,28 +33,11 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from data.fetcher import CACHE_DIR, load_daily  # noqa: E402
+from data.fetcher import CACHE_DIR, load_field_panel  # noqa: E402
 from risk.tradability import build_trade_limits, measure_restriction_impact  # noqa: E402
 
 REPORT_PATH = PROJECT_ROOT / "tradability_report.txt"
 OHLC_FIELDS = ("open", "high", "low", "close")
-
-
-def load_real_ohlc(symbols, start: str = "2010-01-01", end: str = "2025-12-31"):
-    """从本地缓存读真实 OHLC 面板（四字段各一个矩阵）。"""
-    frames: dict[str, dict[str, pd.Series]] = {k: {} for k in OHLC_FIELDS}
-    for i, s in enumerate(symbols):
-        df = load_daily(str(s))
-        if df is None or not set(OHLC_FIELDS).issubset(df.columns):
-            continue
-        sub = df.loc[(df.index >= start) & (df.index <= end)]
-        if len(sub) < 100:
-            continue
-        for k in OHLC_FIELDS:
-            frames[k][str(s)] = sub[k]
-        if (i + 1) % 200 == 0:
-            print(f"  ...已加载 {i + 1}/{len(symbols)} 只")
-    return {k: pd.DataFrame(v).sort_index() for k, v in frames.items()}
 
 
 def main() -> int:
@@ -93,7 +76,7 @@ def main() -> int:
             syms = syms[:args.n]
 
         t0 = time.time()
-        ohlc = load_real_ohlc(syms, args.start, args.end)
+        ohlc = load_field_panel(syms, fields=OHLC_FIELDS, start=args.start, end=args.end)
         log(f"真实 OHLC 载入完成（{time.time() - t0:.1f}s）")
 
         close = ohlc["close"]

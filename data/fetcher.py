@@ -229,6 +229,61 @@ def load_daily(symbol: str, adjust: str = "2") -> pd.DataFrame | None:
     return df
 
 
+def load_field_panel(
+    symbols,
+    fields: tuple[str, ...] = ("close",),
+    start: str | None = None,
+    end: str | None = None,
+    min_rows: int = 100,
+) -> dict[str, pd.DataFrame]:
+    """从本地缓存构建多标的面板（每个字段一个 `DataFrame`）。
+
+    统一了此前散落在各离线运行器里的「逐票读 cache → 拼宽表」逻辑。
+
+    Parameters
+    ----------
+    symbols : Iterable[str]
+        标的列表（顺序即最终列序，缺失标的自动跳过）。
+    fields : tuple[str, ...], default ("close",)
+        要取的字段，须属于 `open/high/low/close/volume/amount`。
+    start, end : Optional[str]
+        日期过滤（含端点）；为 None 不过滤。
+    min_rows : int, default 100
+        少于该行数的标的视为无效样本，跳过。⚠️ 以**缓存中的可得历史长度**判断，
+        **不是**过滤后的窗口长度 —— 否则窄日期窗口会让所有标的都被判无效。
+    start, end : Optional[str]
+        日期过滤（含端点）；为 None 不过滤。
+
+    Returns
+    -------
+    dict[str, pd.DataFrame]
+        `{field: 面板}`，面板 index=date、columns=symbol，按日期升序。
+        所有字段共用同一批标的。
+    """
+    missing = [f for f in fields if f not in _REQUIRED_COLS]
+    if missing:
+        raise ValueError(f"未知字段 {missing}；可用字段 {list(_REQUIRED_COLS)}")
+
+    out: dict[str, dict[str, pd.Series]] = {f: {} for f in fields}
+    for sym in symbols:
+        df = load_daily(str(sym))
+        if df is None or not set(fields).issubset(df.columns):
+            continue
+        if len(df) < min_rows:      # 按可得历史长度判断，先于日期过滤
+            continue
+        sub = df
+        if start is not None:
+            sub = sub.loc[sub.index >= start]
+        if end is not None:
+            sub = sub.loc[sub.index <= end]
+        if sub.empty:
+            continue
+        for f in fields:
+            out[f][str(sym)] = sub[f]
+
+    return {f: pd.DataFrame(v).sort_index() for f, v in out.items()}
+
+
 # ── 批量同步 ──────────────────────────────────────────────
 
 def sync_index(
