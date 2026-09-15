@@ -17,7 +17,7 @@ quant/
 ├── risk/                     # 组合构建（权重追踪法）+ cost_model 成本真源 + 约束编排（orchestrator）+ 拥挤度 + 交易可行性（tradability）+ 回撤控制（drawdown_control）
 ├── strategies/               # 策略研究：每子目录 = report.md + report.py + figures/
 ├── models/                   # ML 非线性合成（LightGBM）+ Walk-Forward + 方法论修正记录
-├── tests/                    # 300 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
+├── tests/                    # 304 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
 ├── docs/                     # 口径论证、回测语义对照表、实施计划
 ├── run_reconciliation.py     # 真实数据账本对账（离线运行器 → reconciliation_report.txt）
 ├── run_tradability_impact.py # 交易约束代价量化（离线运行器 → tradability_report.txt）
@@ -82,7 +82,7 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 | **回撤控制（opt-in）** | `risk/drawdown_control.py` 两个变体：两态滞后带 + **连续映射（自适应形态）**，**输出即闭合账本**（仓位/费用/现金三层；净值与回撤按净收益路径推进）。`run_drawdown_control.py` 做匹配仓位前沿对比 + 边界扫描（最优 mca=0.02 为内部点）；`run_drawdown_walk_forward.py` 做 WF 复核（连续优于两态 7/11；夏普 1.48→1.99、回撤 −29.5%→−8.0%，**但 CAGR 近乎减半**）→ 风险-收益重配比，须**并列报告**。**不回改已发布报告** |
 | **PIT 自检** | `data/pit_auditor.py` + `run_pit_audit.py` 离线审计基本面缓存日期约定 |
 | **向量化引擎** | `build_portfolio` 权重构造向量化（27×，等价性测试逐位守护） |
-| **测试规模** | 300 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、时点契约、成交假设、面板构建、约束守卫、清算三层账本、WF 拼接对账、滑点口径、回撤控制、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
+| **测试规模** | 304 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、时点契约、成交假设、面板构建、约束守卫、清算三层账本、WF 拼接对账、滑点口径、容量重估、回撤控制、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
 
 > 驱动这些收口的两轮评审发现：成本守护测试此前是「空转」（自声明常量测算术，从不 import 真实代码）、
 > 基本面缓存存在 100× 尺度污染、Walk-Forward 隐藏调用点仍传 0.3% 成本——均已被修正并加守护。
@@ -104,13 +104,14 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 pip install -r requirements.txt
 
 python bootstrap.py                    # 拉取沪深 300 全量日线（首启）
-python -m unittest discover -s tests   # 298 项回归测试
+python -m unittest discover -s tests   # 304 项回归测试
 cd strategies/ma_crossover
 python report.py                       # 生成回测报告
 
 python run_reconciliation.py           # 真实报告数据账本对账（790 票，约 10s）
 python run_tradability_impact.py       # 交易约束代价量化（4 条链路，约 40s）
 python run_slippage_impact.py          # 滑点敏感性网格（4 条链路，约 40s）
+python run_capacity_reestimate.py      # 容量上限重估（约束+滑点纳入，约 60s）
 python run_drawdown_control.py         # 回撤控制参数网格 + 前沿对比（790 票，约 25s）
 python run_drawdown_walk_forward.py    # 回撤控制 walk-forward 复核（790 票，约 30s）
 ```

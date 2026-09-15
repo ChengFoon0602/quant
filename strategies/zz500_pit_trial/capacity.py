@@ -22,7 +22,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from models.portfolio_backtest import build_portfolio, performance_metrics
+from models.portfolio_backtest import performance_metrics
+from risk.portfolio import build_weight_portfolio
 
 PARTICIPATION_CAP = 0.3
 
@@ -63,17 +64,34 @@ def run_capacity_sweep(
     k: float = 0.5,
     hold_days: int = 5,
     cost: float | None = None,
+    trade_limits: tuple[pd.DataFrame, pd.DataFrame] | None = None,
+    slippage: float = 0.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """对 AUM 网格跑容量检验，返回 (容量衰减表, 基准组合)。
 
-    基准组合：build_portfolio(return_flows=True) 拿 flows + port_ret（已扣成本）。
-    每个 AUM 在基准上叠加冲击成本重算夏普。flows 与 cost 无关（cost 只影响收益）。
-    cost=None 时走 build_portfolio 默认的方向分离铁律成本。
+    基准组合：`build_weight_portfolio(long_only=True, return_weights=True)` 拿 W_held，
+    再由 `flows = |W_held.diff()|` 供冲击成本模拟；每个 AUM 在基准 `port_ret` 上叠加
+    冲击成本重算夏普。
+
+    `trade_limits` / `slippage`：把交易可行性约束与滑点纳入容量基准（TODO 24）。
+    默认 None/0.0 = 与历史口径一致 —— 是否纳入由调用方显式决定。
+
+    ⚠️ 语义：滑点是**均匀水平位移**（`turnover × slippage`，与 AUM 无关），
+    会把整条夏普-规模曲线**整体下移**；`trade_limits` 改变 `flows`（减少换手），
+    既改基准收益也改冲击项。二者共同把容量上限（夏普跌破阈值处）**向左推**。
 
     aum_grid 单位：元（如 5e8 = 5 亿）。
     """
-    df, flows = build_portfolio(pred_matrix, close_matrix, long_only=True,
-                                cost=cost, hold_days=hold_days, return_flows=True)
+    kwargs: dict = dict(long_only=True, hold_days=hold_days, min_stocks_mult=3,
+                        trade_limits=trade_limits, slippage=slippage)
+    if cost is not None:
+        kwargs["buy_cost"] = cost / 2.0
+        kwargs["sell_cost"] = cost / 2.0
+
+    df, w_held = build_weight_portfolio(pred_matrix, close_matrix,
+                                        return_weights=True, **kwargs)
+    # 首日无「昨日持仓」，差分为 NaN —— 填 0 对齐 build_portfolio 的暖机语义
+    flows = (w_held - w_held.shift(1)).abs().fillna(0.0).reindex(df["port_ret"].index)
     sigma_20d = _stock_vol_20d(close_matrix)
 
     base = performance_metrics(df["port_ret"])

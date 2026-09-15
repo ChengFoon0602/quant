@@ -637,10 +637,24 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
       只有假设滑点 ≥ 万8（对小盘/急单才现实）时，去 bias 结论才跌破「显著」阈 0.5。
     - 含 bias 的 zz500 对滑点**稳健**（万12 仍有 1.98）。
     - ⚠️ 滑点费率是**经验假设**，真实值随市值/流动性差异大（大盘 ~万1、小盘/急单万10+）。
-24. **容量检验未含涨跌停约束与滑点**：`strategies/zz500_pit_trial/capacity.py` 的
-    sqrt 冲击法则（`impact_returns`，k=0.5 + participation cap）**已实现**，
-    但其基准组合是 `build_portfolio(...)` —— 既无 `trade_limits` 也无滑点。
-    「容量上限 < 0.5 亿」是 P1 判决的关键依据，该结论**偏乐观**，需重估。
+24. **容量检验未含涨跌停约束与滑点** —— ✅ **已重估（2026-09-15，`run_capacity_reestimate.py`）**：
+    `run_capacity_sweep` 已接入 `trade_limits` / `slippage`（改用 `build_weight_portfolio`
+    从 W_held 算 flows），对 P1 多头 LO 重估容量上限：
+
+    | 冲击系数 | baseline | +trade_limits | +限+滑点 |
+    |---|---|---|---|
+    | k=0.3（温和） | **5.00 亿** | 2.00 亿 | **0.50 亿** |
+    | k=1.0（激进） | 0.50 亿 | 0.50 亿 | 0.50 亿 |
+
+    **判读**：
+    - 温和冲击假设下，容量上限从 **5 亿 → 0.5 亿**（**10 倍下移**）——
+      滑点是最主要的下压项（换手 × 万5 是均匀水平位移，与 AUM 无关）。
+    - 激进假设下本就 < 0.5 亿（0.5 亿档夏普 0.44），加滑点后进一步掉到 0.27。
+    - 结论：**「容量上限 < 0.5 亿」的既有判断方向正确，但此前高估了温和冲击假设下的容量**；
+      真实容量上限在任何假设下都不超过 ~0.5 亿量级，滑点与约束会进一步压缩。
+    - ⚠️ 附带发现：`build_portfolio` 与 `build_weight_portfolio` 在**第 0 天建仓 flow** 上
+      记账不同（前者记初始仓位、后者记 0），以及分位并列值有 0.23% 的 cell 级微差；
+      两者 port_ret 与日换手合计**逐位一致**，对结论无影响（见 `tests/test_capacity.py`）。
 25. **其余组合类报告未补涨跌停注记**：已补 3 份（`models` / `zz500_pit_trial` /
     `zz500_fundamental_trial`，均为实测过的链路）。未补清单：
     `hs300_crowding_trial`、`etf_momentum_crowding`、`all_weather_risk_parity`、

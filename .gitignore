@@ -24,6 +24,7 @@ tradability_report.txt
 drawdown_control_report.txt
 drawdown_wf_report.txt
 slippage_report.txt
+capacity_reestimate_report.txt
 
 # IDE
 .vscode/
