@@ -17,7 +17,7 @@ quant/
 ├── risk/                     # 组合构建（权重追踪法）+ cost_model 成本真源 + 约束编排（orchestrator）+ 拥挤度 + 交易可行性（tradability）+ 回撤控制（drawdown_control）
 ├── strategies/               # 策略研究：每子目录 = report.md + report.py + figures/
 ├── models/                   # ML 非线性合成（LightGBM）+ Walk-Forward + 方法论修正记录
-├── tests/                    # 257 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
+├── tests/                    # 264 项回归测试（铁律编译、契约断言、自洽对账、变异验证守护）
 ├── docs/                     # 口径论证、回测语义对照表、实施计划
 ├── run_reconciliation.py     # 真实数据账本对账（离线运行器 → reconciliation_report.txt）
 ├── run_tradability_impact.py # 交易约束代价量化（离线运行器 → tradability_report.txt）
@@ -78,10 +78,10 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 | **成交假设断言** | `tests/test_execution_assumptions.py`：涨跌停识别（主板/创业板/ST/北交所）+ **撮合层真拦单**；`test_price_adjust.py` 锁死三复权不共用文件 |
 | **未实现参数守卫** | `tests/test_risk_constraints.py`：`max_turnover` 等未实现的约束必须 `raise`，不允许静默忽略；`max_leverage` 语义锁死为 gross（`Σ\|W\|`）|
 | **交易可行性度量** | `risk/tradability.py` + `run_tradability_impact.py`：**跨 4 条链路**量化涨跌停约束的代价（换手几乎不变但夏普相对掉 3%~12%，**下界**；结论方向均未改变）|
-| **回撤控制（opt-in）** | `risk/drawdown_control.py` 两个变体：两态滞后带 + **连续映射（自适应形态）**。`run_drawdown_control.py` 以**匹配仓位的前沿对比**证明连续在 4/4 档胜出；`run_drawdown_walk_forward.py` 进一步做 WF 复核：连续优于两态**样本外 8/11 成立**，夏普 1.48→2.15、回撤 −29.5%→−8.0%，**但 CAGR 腰斩（27.5%→13.4%）、敞口降至 1/3** → 是重配比而非免费保护。**未接入生产** |
+| **回撤控制（opt-in）** | `risk/drawdown_control.py` 两个变体：两态滞后带 + **连续映射（自适应形态）**，另附 `relevering_cost`（调杠杆成本敏感性）。`run_drawdown_control.py` 做匹配仓位前沿对比 + **边界扫描**（最优在 mca=0.02 内部点；计入调杠杆成本后夏普降 0.15~0.18 但最优位置不动）；`run_drawdown_walk_forward.py` 做 WF 复核（连续优于两态样本外 8/11；夏普 1.48→2.15、回撤 −29.5%→−8.0%，**但 CAGR 腰斩**）→ 是风险-收益重配比而非免费保护。**未接入生产** |
 | **PIT 自检** | `data/pit_auditor.py` + `run_pit_audit.py` 离线审计基本面缓存日期约定 |
 | **向量化引擎** | `build_portfolio` 权重构造向量化（27×，等价性测试逐位守护） |
-| **测试规模** | 257 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、时点契约、成交假设、面板构建、约束守卫、回撤控制、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
+| **测试规模** | 264 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、时点契约、成交假设、面板构建、约束守卫、回撤控制、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
 
 > 驱动这些收口的两轮评审发现：成本守护测试此前是「空转」（自声明常量测算术，从不 import 真实代码）、
 > 基本面缓存存在 100× 尺度污染、Walk-Forward 隐藏调用点仍传 0.3% 成本——均已被修正并加守护。
@@ -103,7 +103,7 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 pip install -r requirements.txt
 
 python bootstrap.py                    # 拉取沪深 300 全量日线（首启）
-python -m unittest discover -s tests   # 257 项回归测试
+python -m unittest discover -s tests   # 264 项回归测试
 cd strategies/ma_crossover
 python report.py                       # 生成回测报告
 

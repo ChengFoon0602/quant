@@ -46,7 +46,9 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-__all__ = ["apply_drawdown_control", "apply_drawdown_scaling"]
+from risk.cost_model import BUY_COST, SELL_COST
+
+__all__ = ["apply_drawdown_control", "apply_drawdown_scaling", "relevering_cost"]
 
 # 规则签名：(前一日受控回撤, 当前状态) -> (当日仓位系数, 新状态)
 _DrawdownRule = Callable[[float, float], "tuple[float, float]"]
@@ -184,3 +186,40 @@ def apply_drawdown_scaling(
         return s, s
 
     return _simulate_closed_loop(returns, rule)
+
+
+def relevering_cost(
+    scale: pd.Series,
+    *,
+    gross: float = 2.0,
+    buy_cost: float = BUY_COST,
+    sell_cost: float = SELL_COST,
+) -> pd.Series:
+    """按仓位系数的逐日变化估算「调杠杆」的交易成本。
+
+    把整个账本从 `scale[t−1]` 调到 `scale[t]`，等价于对每个持仓按 `Δscale` 再交易一次：
+    增仓按买入费率、减仓按卖出费率，成交规模为 `|Δscale| × gross`。
+
+    ⚠️ 为什么需要它：本模块两个控制函数的受控收益是「对已实现净收益按 `scale` 缩放」，
+    **不含**这项成本 —— 即默认假设**调杠杆免费**。对 `max_cut_at` 很小（scale 在
+    0.2↔1.0 之间高频切换）的连续映射，这会**系统性高估**控制效果。
+    用它做敏感性检验，而不是把上面那个假设当成事实。
+
+    Parameters
+    ----------
+    scale : pd.Series
+        逐日仓位系数。
+    gross : float, default 2.0
+        被缩放账本的总杠杆 `Σ|w|`（A 股多空对冲约 2.0，纯多头约 1.0）。
+    buy_cost, sell_cost : float
+        方向分离费率，须与回测口径一致。
+
+    Returns
+    -------
+    pd.Series
+        逐日调杠杆成本（与 `scale` 同索引，首日为 0）。
+    """
+    d = pd.Series(scale).diff().fillna(0.0)
+    up = d.clip(lower=0.0) * gross * buy_cost
+    down = (-d).clip(lower=0.0) * gross * sell_cost
+    return up + down

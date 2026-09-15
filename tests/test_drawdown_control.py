@@ -18,7 +18,12 @@ import numpy as np
 import pandas as pd
 
 from backtest.metrics import max_drawdown, sharpe_ratio
-from risk.drawdown_control import apply_drawdown_control, apply_drawdown_scaling
+from risk.cost_model import BUY_COST, SELL_COST
+from risk.drawdown_control import (
+    apply_drawdown_control,
+    apply_drawdown_scaling,
+    relevering_cost,
+)
 
 THRESHOLD = 0.10
 CUT = 0.5
@@ -187,6 +192,55 @@ class TestAdaptiveContinuousScaling(unittest.TestCase):
             apply_drawdown_scaling(r, floor=1.2)
         with self.assertRaises(ValueError):
             apply_drawdown_scaling(pd.Series([], dtype=float))
+
+
+class TestReleveringCost(unittest.TestCase):
+    """调杠杆成本（relevering_cost）—— 控制效果的「隐含成本」敏感性检验。"""
+
+    def test_constant_scale_is_free(self):
+        s = pd.Series([0.4] * 10, index=pd.bdate_range("2021-01-01", periods=10))
+        self.assertTrue((relevering_cost(s) == 0.0).all())
+
+    def test_increase_charged_at_buy_rate(self):
+        s = pd.Series([1.0, 1.5], index=pd.bdate_range("2021-01-01", periods=2))
+        got = relevering_cost(s, gross=2.0)
+        self.assertAlmostEqual(float(got.iloc[1]), 0.5 * 2.0 * BUY_COST, places=15)
+
+    def test_decrease_charged_at_sell_rate(self):
+        s = pd.Series([1.0, 0.5], index=pd.bdate_range("2021-01-01", periods=2))
+        got = relevering_cost(s, gross=2.0)
+        self.assertAlmostEqual(float(got.iloc[1]), 0.5 * 2.0 * SELL_COST, places=15)
+
+    def test_non_negative(self):
+        r = _crash_series()
+        ctl = apply_drawdown_scaling(r, max_cut_at=0.05, floor=0.3)
+        self.assertGreaterEqual(float(relevering_cost(ctl["scale"]).min()), 0.0)
+
+    def test_first_day_is_free(self):
+        r = _crash_series()
+        ctl = apply_drawdown_scaling(r, max_cut_at=0.05, floor=0.3)
+        self.assertAlmostEqual(float(relevering_cost(ctl["scale"]).iloc[0]), 0.0)
+
+    def test_cost_is_positive_for_varying_scale(self):
+        r = _crash_series()
+        varying = apply_drawdown_scaling(r, max_cut_at=0.30, floor=0.2)["scale"]
+        self.assertGreater(float(relevering_cost(varying).sum()), 0.0)
+
+    def test_tiny_mca_becomes_two_state_and_mean_scale_is_midway(self):
+        """实测（与直觉相反）：mca 极小时 scale 只在 `{floor, 1}` 间取值、均值居中 ——
+        既**不是**「长期贴在下限」，也**不是**「切换次数爆炸」。
+
+        原因：回撤在**受控路径**上计算 —— 一旦降到 floor，受控回撤随即收窄，
+        规则立刻恢复满仓，于是形成 `1.0 ↔ floor` 的双态振荡。
+        所以「极端区」既不是简单的低敞口，也不是换手灾难（见边界扫描的 Σ|Δscale| 列）。
+        """
+        r = _crash_series()
+        tiny = apply_drawdown_scaling(r, max_cut_at=0.002, floor=0.2)["scale"]
+        wide = apply_drawdown_scaling(r, max_cut_at=0.30, floor=0.2)["scale"]
+        self.assertLessEqual(int(tiny.nunique()), 3)          # 双态
+        self.assertGreater(float(tiny.mean()), 0.25)          # 不贴下限
+        self.assertLess(float(tiny.mean()), 0.95)             # 也不长期满仓
+        self.assertLess(int(tiny.nunique()), int(wide.nunique()))
 
 
 class TestParameterValidation(unittest.TestCase):
