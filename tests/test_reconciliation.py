@@ -39,6 +39,7 @@ from backtest.reconciliation import (
     assert_closed,
     assert_overlay_closed,
     close_overlay_ledger,
+    reconcile_walk_forward_segments,
 )
 from risk.cost_model import BUY_COST, SELL_COST
 from risk.orchestrator import PortfolioOrchestrator
@@ -241,6 +242,98 @@ class TestOverlayLedger(unittest.TestCase):
         led = close_overlay_ledger(raw, pd.Series(0.5, index=raw.index[:10]))
         self.assertAlmostEqual(float(led["cash_weight"].iloc[0]), 0.5, places=15)
         self.assertAlmostEqual(float(led["cash_weight"].iloc[-1]), 0.0, places=15)
+
+
+class TestWalkForwardStitch(unittest.TestCase):
+    """Walk-Forward 拼接层对账（`reconcile_walk_forward_segments`）。
+
+    `concat + sort_index` 会掩盖窗口重叠 / 乱序 / 索引重复 —— 账本对账查不出这一层。
+    """
+
+    @staticmethod
+    def _cal() -> pd.DatetimeIndex:
+        return pd.bdate_range("2021-01-01", "2023-12-31")
+
+    @staticmethod
+    def _seg(cal: pd.DatetimeIndex, year: int) -> pd.DatetimeIndex:
+        return cal[(cal >= f"{year}-01-01") & (cal <= f"{year}-12-31")]
+
+    def test_clean_tiling_passes(self):
+        cal = self._cal()
+        segs = [("2021", self._seg(cal, 2021)),
+                ("2022", self._seg(cal, 2022)),
+                ("2023", self._seg(cal, 2023))]
+        df, s = reconcile_walk_forward_segments(segs, calendar=cal)
+        self.assertEqual(s["n_segments"], 3)
+        self.assertAlmostEqual(s["coverage"], 1.0, places=12)
+        self.assertEqual(s["gap_days_total"], 0)
+        self.assertEqual(s["off_calendar"], 0)
+        self.assertEqual(list(df["segment"]), ["2021", "2022", "2023"])
+
+    def test_overlap_raises(self):
+        """窗重叠 → 同一交易日被计入两次，必须 raise。"""
+        cal = self._cal()
+        with self.assertRaises(AssertionError) as ctx:
+            reconcile_walk_forward_segments(
+                [("A", cal[cal <= "2022-06-30"]), ("B", cal[cal >= "2022-01-01"])],
+                calendar=cal)
+        self.assertIn("重叠", str(ctx.exception))
+
+    def test_out_of_order_raises(self):
+        cal = self._cal()
+        with self.assertRaises(AssertionError):
+            reconcile_walk_forward_segments(
+                [("2023", self._seg(cal, 2023)), ("2021", self._seg(cal, 2021))],
+                calendar=cal)
+
+    def test_duplicate_dates_raise(self):
+        cal = self._cal()
+        dup = pd.DatetimeIndex(list(self._seg(cal, 2021)) * 2)
+        with self.assertRaises(AssertionError) as ctx:
+            reconcile_walk_forward_segments([("2021", dup)], calendar=cal)
+        self.assertIn("重复", str(ctx.exception))
+
+    def test_unsorted_index_raises(self):
+        cal = self._cal()
+        with self.assertRaises(AssertionError):
+            reconcile_walk_forward_segments([("2021", self._seg(cal, 2021)[::-1])],
+                                            calendar=cal)
+
+    def test_empty_segment_raises(self):
+        with self.assertRaises(AssertionError):
+            reconcile_walk_forward_segments([("2021", pd.DatetimeIndex([]))],
+                                            calendar=self._cal())
+
+    def test_empty_segments_raises(self):
+        with self.assertRaises(AssertionError):
+            reconcile_walk_forward_segments([])
+
+    def test_gap_is_reported_not_raised(self):
+        """窗间缺口**只报告不 raise** —— 按窗重算会固有丢掉各窗热身期。"""
+        cal = self._cal()
+        df, s = reconcile_walk_forward_segments(
+            [("2021", self._seg(cal, 2021)), ("2023", self._seg(cal, 2023))],
+            calendar=cal)
+        self.assertGreater(s["gap_days_total"], 200)   # 整个 2022 缺失
+        # 跨期 3 个日历年、覆盖 2 个 → 覆盖率 ≈ 2/3
+        self.assertAlmostEqual(s["coverage"], 2 / 3, places=2)
+        self.assertGreater(int(df["gap_days_before"].iloc[1]), 200)
+
+    def test_off_calendar_dates_are_reported(self):
+        """落在非交易日（周末）的日期只报告，供人判断。"""
+        cal = self._cal()
+        weekend = pd.DatetimeIndex(["2021-01-02", "2021-01-03"])
+        seg = self._seg(cal, 2021).union(weekend)
+        df, s = reconcile_walk_forward_segments([("2021", seg)], calendar=cal)
+        self.assertEqual(s["off_calendar"], 2)
+        self.assertEqual(int(df["off_calendar"].iloc[0]), 2)
+
+    def test_without_calendar_only_checks_hard_invariants(self):
+        cal = self._cal()
+        df, s = reconcile_walk_forward_segments([("2021", self._seg(cal, 2021))])
+        self.assertEqual(s["gap_days_total"], 0)
+        self.assertEqual(s["off_calendar"], 0)
+        self.assertTrue(np.isnan(s["coverage"]))   # 无日历时覆盖率不可算
 
 
 @unittest.skipIf(_models_build_portfolio is None, "models.portfolio_backtest 不可导入")

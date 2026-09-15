@@ -42,7 +42,11 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backtest.reconciliation import assert_books_equal, assert_closed  # noqa: E402
+from backtest.reconciliation import (  # noqa: E402
+    assert_books_equal,
+    assert_closed,
+    reconcile_walk_forward_segments,
+)
 from data.fetcher import CACHE_DIR, load_field_panel  # noqa: E402
 from risk.portfolio import build_weight_portfolio  # noqa: E402
 
@@ -180,6 +184,37 @@ def main() -> int:
             log("   处置: 本次仅参数化、**不统一**，默认行为保持不变（决策记录见 docs/ 实施计划）")
         else:
             log("   判定: 差异不可忽略 → 维持现状，统一需单独评估对已发布报告的影响")
+
+        # ── ⑤ Walk-Forward 拼接对账（真实产物）──
+        log("")
+        log("-" * 72)
+        log("⑤ Walk-Forward 拼接对账（保存的逐窗产物）")
+        wf_path = (PROJECT_ROOT / "strategies" / "zz500_pit_trial"
+                   / "oof_predictions_pit_select.csv")
+        if not wf_path.exists():
+            log(f"   跳过：缺少 {wf_path.name}（gitignore 生成物，由 walk_forward_pit_select.py 产出）")
+        else:
+            wf = pd.read_csv(wf_path, index_col=0)
+            wf.index = pd.to_datetime(wf.index)
+            wf = wf.sort_index()
+            cached = {p.stem for p in CACHE_DIR.glob("*.csv")}
+            syms_wf = [str(c) for c in wf.columns if str(c) in cached]
+            cal = load_field_panel(syms_wf[:100], fields=("close",),
+                                   start=args.start, end=args.end)["close"].index
+            segs = [(str(int(yr)), wf.index[wf.index.year == yr])
+                    for yr in sorted(set(wf.index.year))]
+            seg_df, seg = reconcile_walk_forward_segments(segs, calendar=cal,
+                                                         name="WFPITSelect")
+            log(f"   {wf_path.parent.name}/{wf_path.name}")
+            log(f"   {seg['n_segments']} 窗 | 覆盖 {seg['n_days']} 天 | "
+                f"跨期 {seg['span_trading_days']} 天 | 覆盖率 {seg['coverage']:.4f}")
+            log(f"   窗间未覆盖 {seg['gap_days_total']} 天（最长连续 {seg['max_gap_run']}）"
+                f" | 非交易日 {seg['off_calendar']} 个")
+            log("   逐窗明细（`gap_days_before` = 与上一窗之间的未覆盖交易日）:")
+            log(seg_df.to_string(index=False))
+            log("   注: 本检查的硬断言（重叠/乱序/重复）按年分组后天然成立，")
+            log("       真实价值在「非交易日 + 缺口 + 覆盖率」——它验证的是**保存产物的完整性**。")
+            log("       逐窗重叠类问题发生在生成端，由 models/walk_forward.py 拼接前调用同一函数拦下。")
 
     except AssertionError as e:
         ok = False

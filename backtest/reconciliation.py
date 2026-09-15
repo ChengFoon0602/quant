@@ -26,7 +26,7 @@ backtest/reconciliation.py — 回测账本自洽性对账（单一真源）。
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -39,7 +39,8 @@ from risk.drawdown_control import relevering_cost
 TOL: float = 1e-10
 
 __all__ = ["TOL", "reconcile_from_weights", "assert_closed", "assert_books_equal",
-           "close_overlay_ledger", "assert_overlay_closed"]
+           "close_overlay_ledger", "assert_overlay_closed",
+           "reconcile_walk_forward_segments"]
 
 
 def reconcile_from_weights(
@@ -290,3 +291,119 @@ def assert_overlay_closed(
         raise AssertionError(
             f"覆盖层清算不闭合：net_ret 最大偏差 {gaps['net_ret']:.3e} > {tol:.1e}{hint}")
     return gaps
+
+
+def reconcile_walk_forward_segments(
+    segments: Sequence[Tuple[object, pd.DatetimeIndex]],
+    *,
+    calendar: Optional[pd.DatetimeIndex] = None,
+    name: str = "walk_forward",
+) -> Tuple[pd.DataFrame, dict]:
+    """Walk-Forward 逐窗预测/收益**拼接层**的完整性对账。
+
+    为什么需要它
+    ------------
+    `assert_closed` 对的是「账 vs 权重」，对**预测拼接**一无所知。而 WF 的汇总口径是
+
+        all_ports = pd.concat([每窗 port_ret]).sort_index()
+
+    `concat + sort_index` 会**掩盖**三类问题：窗口重叠（同一交易日被计入两次）、
+    窗口乱序、索引重复。它们都不会让账本失衡，却会让样本被重复或漏算 ——
+    账本对账查不出，只能在拼接层查。
+
+    硬断言（**必然错误**，违反即 raise）
+    -----------------------------------
+    ① 每段索引唯一且升序；
+    ② 段间**两两不相交** —— 同一交易日不得落入两个测试窗；
+    ③ 段的起点**严格递增**（WF 必须向前走）。
+
+    报告（**不 raise**，因为缺口未必是错误）
+    ---------------------------------------
+    ④ 窗间未覆盖交易日数与最长连续缺口 —— 每窗单独建组合时热身期（`hold_days`）
+       会被各窗丢弃，因此窗间缺口是**按窗重算的固有代价**，需要看见而非拦截；
+    ⑤ 覆盖天数 / 跨期总交易日 / 覆盖率；若给了 `calendar`，另报不在日历上的日期数。
+
+    Parameters
+    ----------
+    segments : Sequence[Tuple[object, pd.DatetimeIndex]]
+        `(窗标签, 该窗的日期索引)`，按时间顺序给出。
+    calendar : Optional[pd.DatetimeIndex]
+        权威交易日历（用于算缺口与覆盖率）。为 None 时只做 ①②③。
+    name : str
+        报错时的前缀。
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, dict]
+        逐窗明细（`start` / `end` / `n_days` / `gap_days_before` / `off_calendar`）
+        与整体统计 `dict`。
+    """
+    if not segments:
+        raise AssertionError(f"{name}: 分段为空，无法对账")
+
+    cal = pd.DatetimeIndex(calendar).unique().sort_values() if calendar is not None else None
+
+    rows: list[dict] = []
+    prev_end = None
+    gap_total = 0
+    max_gap_run = 0
+    n_off_cal = 0
+    covered: list[pd.DatetimeIndex] = []
+
+    for label, idx in segments:
+        ix = pd.DatetimeIndex(idx)
+        if ix.has_duplicates:
+            raise AssertionError(
+                f"{name}[{label}]: 索引存在 {int(ix.duplicated().sum())} 个重复日期"
+                "（重复计入会让样本被放大）")
+        if not ix.is_monotonic_increasing:
+            raise AssertionError(f"{name}[{label}]: 索引未升序")
+        if len(ix) == 0:
+            raise AssertionError(f"{name}[{label}]: 该窗为空")
+
+        if prev_end is not None and ix.min() <= prev_end:
+            raise AssertionError(
+                f"{name}: 窗口**重叠或乱序** —— 窗 [{label}] 起于 {ix.min().date()}，"
+                f"不晚于上一窗结束 {prev_end.date()}（同一交易日会被计入两次）")
+
+        gap_days = 0
+        if prev_end is not None and cal is not None:
+            between = cal[(cal > prev_end) & (cal < ix.min())]
+            gap_days = int(len(between))
+            gap_total += gap_days
+            if gap_days > max_gap_run:
+                max_gap_run = gap_days
+
+        off = int((~ix.isin(cal)).sum()) if cal is not None else 0
+        n_off_cal += off
+
+        rows.append({
+            "segment": label,
+            "start": ix.min(),
+            "end": ix.max(),
+            "n_days": int(len(ix)),
+            "gap_days_before": gap_days,
+            "off_calendar": off,
+        })
+        covered.append(ix)
+        prev_end = ix.max()
+
+    union = pd.DatetimeIndex(np.concatenate([c.to_numpy() for c in covered])).unique().sort_values()
+    if cal is not None:
+        span_days = int(((cal >= union.min()) & (cal <= union.max())).sum())
+        coverage = (len(union) / span_days) if span_days else float("nan")
+    else:
+        span_days = None      # 无权威日历 → 覆盖率不可算，不假装
+        coverage = float("nan")
+    summary = {
+        "n_segments": len(rows),
+        "n_days": int(len(union)),
+        "span_trading_days": span_days,
+        "coverage": coverage,
+        "gap_days_total": gap_total,
+        "max_gap_run": max_gap_run,
+        "off_calendar": n_off_cal,
+        "span_start": union.min(),
+        "span_end": union.max(),
+    }
+    return pd.DataFrame(rows), summary

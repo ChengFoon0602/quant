@@ -157,6 +157,21 @@ def main():
         return
 
     # ── 汇总 ──
+    # 拼接前对账：窗口不得重叠 / 乱序 / 索引重复，并报出窗间缺口。
+    # 为什么必须在这里查：`concat + sort_index` 会**掩盖**这三类问题，
+    # 而账本对账（assert_closed）对的是「账 vs 权重」，对预测拼接一无所知。
+    from backtest.reconciliation import reconcile_walk_forward_segments
+
+    seg_df, seg = reconcile_walk_forward_segments(
+        [(str(yr), v[1]["port_ret"].index) for yr, v in sorted(wf_predictions.items())],
+        calendar=close_matrix.index, name="WF")
+    print(f"\n  拼接对账: {seg['n_segments']} 窗 | 覆盖 {seg['n_days']} 天 | "
+          f"跨期 {seg['span_trading_days']} 天 | 覆盖率 {seg['coverage']:.4f}")
+    print(f"            窗间未覆盖 {seg['gap_days_total']} 天（最长连续 {seg['max_gap_run']}）"
+          f" | 非交易日 {seg['off_calendar']} 个")
+    print("            注: 缺口来自「每窗单独建组合 → 各窗热身期被丢弃」，属按窗重算的固有代价；")
+    print("                但它会让汇总的交易天数少于日历跨度，年化口径须按实际天数理解。")
+
     all_ports = pd.concat([v[1]["port_ret"] for v in wf_predictions.values()])
     all_ports = all_ports.sort_index()
     m_wf = performance_metrics(all_ports)

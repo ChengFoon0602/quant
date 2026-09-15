@@ -573,6 +573,24 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
       不是「同敞口下谁更好」）。
     **要用就当作独立的风险偏好选择**：固定一组参数、明确接受低敞口。
 
+22. ✅ **已收口（2026-09-15）：资金曲线对账扩到 Walk-Forward 拼接层**
+    （此前只在组合层对账）。新增
+    `backtest/reconciliation.py::reconcile_walk_forward_segments`：
+
+    - **硬断言**（违反即 raise）：段内索引唯一且升序、**段间两两不相交**（同一交易日
+      不得落入两个测试窗）、段起点**严格递增**；
+    - **报告**（不 raise）：窗间未覆盖交易日、最长连续缺口、覆盖率、非交易日数 ——
+      缺口可能来自数据可得性，或**按窗重算的固有热身期丢失**（每窗单独建组合会丢掉
+      各窗 `hold_days` 热身期），需要看见而非拦截。
+
+    为什么必须单独查：WF 汇总是 `pd.concat([每窗 port_ret]).sort_index()`，
+    **`sort_index` 会掩盖重叠/乱序/重复** —— 它们不让账本失衡，`assert_closed` 查不出。
+
+    **调用点**：`models/walk_forward.py`（`concat` 之前，生成端拦截）+
+    `run_reconciliation.py` 步骤 ⑤（**真实产物完整性复核**）。
+    **实测**：`oof_predictions_pit_select.csv` 11 窗 / 覆盖 2674 天 /
+    **覆盖率 1.0000** / 窗间缺口 0 / 非交易日 0 → 产物干净。
+
     **边界扫描（2026-09-15，`run_drawdown_control.py` 第三节）**：把连续族 `max_cut_at`
     下探到 **0.002 / 0.005 / 0.008 / 0.012**，并新增「调杠杆成本」列。
 
