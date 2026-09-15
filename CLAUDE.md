@@ -490,12 +490,20 @@ python report.py    # 跑完整分析 → print 全部指标 + 保存图表到 f
     **决策建议**：**不回改已发布报告**（代价温和，回改成本远超收益）；新策略默认开启。
     ⚠️ 上表是**下界** —— `detect_limit_moves` 只识别**一字板**（开盘即触限价且 high==low），
     盘中封板无法成交的情形未建模，真实代价更大。
-20. **回撤控制** —— ⚙️ **组件已建 + 参数网格已出，接入待你定夺**：
+20. **回撤控制** —— ✅ **已进标准流程第 10 步（可选，必须并列报告）+ 账本已闭合**：
     全仓 grep `stop_loss|止损|max_drawdown_limit|trailing_stop` 原为零命中。
     新增 `risk/drawdown_control.py::apply_drawdown_control`（滞后带状态机、**闭环** ——
     回撤在受控路径上计算，与实盘观察一致；决策只用截至前一日的回撤，无未来函数）
     + `run_drawdown_control.py` 参数网格 + `tests/test_drawdown_control.py`（13 项）。
-    **不接入生产**（与 `gate` / `position_scale` 同属 opt-in）。
+    **账本已闭合（2026-09-15）**：`controlled_ret` 现在**就是净收益** ——
+    三层账（仓位 `position_ret` / 费用 `relever_cost` / 现金 `cash_ret`）在函数内合成，
+    并以列全部返回；**净值与回撤也按净收益路径推进**，状态反馈与账本一致。
+    实测（真实 790 票，`mca=0.02/floor=0.2`）：`assert_overlay_closed` 偏差 **0.000e+00**；
+    费用账使夏普从 1.8822 降到 **1.7271（−0.155）**。
+    ⚠️ `gross` 是模型假设（函数只见收益序列）：LS 约 2.0、**纯多头必须显式传 1.0**。
+    `include_relever_cost=False` 仅为诊断开关（复现旧「只记仓位账」口径），生产不用。
+    **不回改已发布报告**；新策略按第 10 步「并列报告」两组 headline 指标
+    （与 `gate` / `position_scale` 同属 opt-in 覆盖层）。
 
     实测（真实 790 票 / LS / 2010-2025，`recovery = threshold/2`）：
 

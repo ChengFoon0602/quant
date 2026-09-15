@@ -37,12 +37,11 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backtest.metrics import annualize_cagr, max_drawdown, sharpe_ratio  # noqa: E402
-from backtest.reconciliation import assert_overlay_closed, close_overlay_ledger  # noqa: E402
+from backtest.reconciliation import assert_overlay_closed  # noqa: E402
 from data.fetcher import CACHE_DIR, load_field_panel  # noqa: E402
 from risk.drawdown_control import (  # noqa: E402
     apply_drawdown_control,
     apply_drawdown_scaling,
-    relevering_cost,
 )
 from risk.portfolio import build_weight_portfolio  # noqa: E402
 
@@ -203,25 +202,24 @@ def main() -> int:
         log("=" * 84)
         log("边界扫描：连续族最优是否真在 mca≈0.02，还是网格没包住？")
         log("=" * 84)
-        log("⚠️ 含「调杠杆成本」：受控收益是按 scale 缩放净收益，默认假设**调杠杆免费**。")
-        log("   mca 越小 → scale 在 0.2↔1.0 间切换越频繁 → 该假设越不成立。")
+        log("口径：`controlled_ret` 已是**闭合账本**（仓位账 − 费用账 + 现金账）。")
+        log("      另列 `sharpe_pos_only` = 只记仓位账的旧口径，供对照。")
         scan_rows = []
         for mca in (0.002, 0.005, 0.008, 0.012, 0.02, 0.03, 0.05):
             for fl in (0.05, 0.1, 0.2, 0.3, 0.5):
                 ctl = apply_drawdown_scaling(base_ret, max_cut_at=mca, floor=fl)
-                rlc = relevering_cost(ctl["scale"], gross=2.0)
-                adj = ctl["controlled_ret"] - rlc
+                pos_only = apply_drawdown_scaling(
+                    base_ret, max_cut_at=mca, floor=fl, include_relever_cost=False)
                 scan_rows.append({
                     "mca": mca,
                     "floor": fl,
                     "config": f"mca={mca:.3f} fl={fl:.2f}",
                     "sharpe": sharpe_ratio(ctl["controlled_ret"]),
-                    "sharpe_adj": sharpe_ratio(adj),
+                    "sharpe_pos_only": sharpe_ratio(pos_only["controlled_ret"]),
                     "cagr": annualize_cagr(ctl["controlled_ret"]),
-                    "cagr_adj": annualize_cagr(adj),
                     "avg_scale": float(ctl["scale"].mean()),
                     "sum_dscale": float(ctl["scale"].diff().abs().sum()),
-                    "relever_cost": float(rlc.sum()),
+                    "relever_cost": float(ctl["relever_cost"].sum()),
                 })
         scan = pd.DataFrame(scan_rows).set_index("config")
 
@@ -229,54 +227,44 @@ def main() -> int:
         marg = scan.loc[scan.groupby("mca")["sharpe"].idxmax()]
         log("")
         log("按 mca 分组取最优 floor（观察边际趋势）:")
-        log(marg[["mca", "floor", "sharpe", "sharpe_adj", "cagr", "cagr_adj",
+        log(marg[["mca", "floor", "sharpe", "sharpe_pos_only", "cagr",
                   "avg_scale", "sum_dscale", "relever_cost"]].to_string(
             float_format=lambda v: f"{v:,.4f}"))
 
         mca_min = float(scan["mca"].min())
-        best_raw = scan.loc[scan["sharpe"].idxmax()]
-        best_adj = scan.loc[scan["sharpe_adj"].idxmax()]
+        best = scan.loc[scan["sharpe"].idxmax()]
         log("")
-        log(f"  未计调杠杆成本  最优: {best_raw.name}  夏普 {best_raw['sharpe']:.4f}"
-            f"  (mca={best_raw['mca']:.3f})")
-        log(f"  计入调杠杆成本  最优: {best_adj.name}  夏普 {best_adj['sharpe_adj']:.4f}"
-            f"  (mca={best_adj['mca']:.3f})")
-        log(f"  原始序列（无控制）夏普: {sharpe_ratio(base_ret):.4f}")
+        log(f"  闭合口径最优     : {best.name}  夏普 {best['sharpe']:.4f} (mca={best['mca']:.3f})")
+        log(f"  同档「只记仓位账」: 夏普 {best['sharpe_pos_only']:.4f}"
+            f"  → 费用账使夏普下降 {best['sharpe_pos_only'] - best['sharpe']:.4f}")
+        log(f"  原始序列（无控制）: 夏普 {sharpe_ratio(base_ret):.4f}")
         log("")
-        if float(best_raw["mca"]) <= mca_min * 1.01:
-            log("  ① 未计成本时最优仍贴在 mca 下界 → **网格仍未包住**。")
+        if float(best["mca"]) <= mca_min * 1.01:
+            log("  ① 最优仍贴在 mca 下界 → **网格仍未包住**。")
         else:
-            log(f"  ① 未计成本时最优在 mca={best_raw['mca']:.3f}（**内部点**）"
+            log(f"  ① 最优在 mca={best['mca']:.3f}（**内部点**）"
                 " → 先前「贴边界」是网格粒度问题，非退化。")
-        if float(best_adj["mca"]) > float(best_raw["mca"]) * 1.05:
-            log(f"  ② 计入调杠杆成本后最优**移向更大的 mca"
-                f"（{best_raw['mca']:.3f} → {best_adj['mca']:.3f}）**"
-                " → 极端区确实在吃「调杠杆免费」这个假设。")
-        else:
-            log("  ② 计入成本后最优位置基本不动 → 结论不依赖该假设。")
-        log(f"  ③ mca 越小，Σ|Δscale| 从 {marg['sum_dscale'].min():.1f} 升到 "
-            f"{marg['sum_dscale'].max():.1f}（{marg['sum_dscale'].max() / max(marg['sum_dscale'].min(), 1e-9):.0f}×）；"
-            "调杠杆成本随之放大。")
+        log(f"  ② Σ|Δscale| 范围 {marg['sum_dscale'].min():.1f} ~ "
+            f"{marg['sum_dscale'].max():.1f}"
+            f"（{marg['sum_dscale'].max() / max(marg['sum_dscale'].min(), 1e-9):.2f}×）—— 非单调。")
 
-        # ── 清算演示：受控账本目前只记了「仓位账」 ──
+        # ── 清算演示：闭合口径 vs 只记仓位账 ──
         log("")
-        log("清算演示（覆盖层必须三层账本才闭合）:")
+        log("清算演示（覆盖层必须三层账本）:")
         probe = apply_drawdown_scaling(base_ret, max_cut_at=0.02, floor=0.20)
-        ledger = close_overlay_ledger(base_ret, probe["scale"], gross=2.0)
+        probe_pos = apply_drawdown_scaling(base_ret, max_cut_at=0.02, floor=0.20,
+                                           include_relever_cost=False)
+        gaps = assert_overlay_closed(probe, base_ret, probe["scale"], gross=2.0)
+        log(f"  ✓ 闭合口径（默认 controlled_ret）→ 对账通过，net_ret 最大偏差 "
+            f"{gaps['net_ret']:.3e}")
         try:
-            assert_overlay_closed(
-                pd.DataFrame({"port_ret": probe["controlled_ret"]}),
-                base_ret, probe["scale"], gross=2.0)
-            log("  ? 仓位账直接作净收益竟然通过了 —— 说明费用账为 0（不应发生）")
+            assert_overlay_closed(probe_pos, base_ret, probe_pos["scale"], gross=2.0)
+            log("  ? 只记仓位账竟然也通过 —— 不应发生")
         except AssertionError as exc:
-            log("  ✗ 把 controlled_ret（= 仓位账）直接当净收益 → 清算**不闭合**：")
+            log("  ✓ 只记仓位账（include_relever_cost=False）→ 对账**按预期失败**：")
             log(f"     {str(exc).splitlines()[0]}")
-        assert_overlay_closed(
-            pd.DataFrame({"port_ret": ledger["net_ret"]}),
-            base_ret, probe["scale"], gross=2.0)
-        log("  ✓ 补上费用账与现金账（`close_overlay_ledger`）→ 闭合")
-        log(f"     费用账（调杠杆成本）合计 {float(ledger['relever_cost'].sum()):.6f}"
-            f" | 平均现金占比 {float(ledger['cash_weight'].mean()):.4f}")
+        log(f"     费用账合计 {gaps['relever_cost_total']:.6f} | "
+            f"平均现金占比 {float(probe['cash_weight'].mean()):.4f}")
 
         log("")
         log("读表须知（否则容易误读）:")
@@ -286,7 +274,8 @@ def main() -> int:
         log("    收益下降里含降杠杆的成本。判断「值不值」应看 夏普/回撤 与 avg_scale 的取舍。")
         log("  · 表面规律：减仓越深 → 夏普越高、回撤越浅、绝对收益越低（本网格单调）。")
         log("    这不是「最优解在角落」，而是**风险偏好问题** —— 继续外推只会更极端。")
-        log("  · 本组件**未接入生产**：上表只用于选参数，接入与否由你决定（CLAUDE.md TODO 20）。")
+        log("  · 本组件**不回改已发布报告**；标准分析流程第 10 步要求新策略「并列报告」"
+            "（加/不加覆盖层两组 headline 指标）。")
 
     except AssertionError as e:
         ok = False

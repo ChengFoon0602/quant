@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from backtest.metrics import max_drawdown, sharpe_ratio
+from backtest.reconciliation import assert_overlay_closed
 from risk.cost_model import BUY_COST, SELL_COST
 from risk.drawdown_control import (
     apply_drawdown_control,
@@ -115,8 +116,9 @@ class TestDegenerateCases(unittest.TestCase):
         self.assertGreater(max_drawdown(deep), max_drawdown(mild),
                            "更深的减仓应给出更浅的最大回撤")
 
-    def test_controlled_equals_raw_times_scale(self):
-        out = apply_drawdown_control(_crash_series(), cut=CUT)
+    def test_controlled_equals_raw_times_scale_when_scale_is_one(self):
+        """scale ≡ 1 时无调杠杆成本 → 受控 == 原始。"""
+        out = apply_drawdown_control(_crash_series(), cut=1.0)
         np.testing.assert_allclose(out["controlled_ret"].values,
                                    (out["raw_ret"] * out["scale"]).values,
                                    rtol=0, atol=1e-15)
@@ -171,10 +173,13 @@ class TestAdaptiveContinuousScaling(unittest.TestCase):
         loose = apply_drawdown_scaling(r, max_cut_at=0.30, floor=0.3)["scale"].mean()
         self.assertGreater(float(loose), float(tight))
 
-    def test_controlled_equals_raw_times_scale(self):
-        out = apply_drawdown_scaling(_crash_series())
+    def test_controlled_equals_raw_times_scale_when_unreachable(self):
+        """阈值永不触及 → scale ≡ 1 → 受控 == 原始（无费用账）。"""
+        out = apply_drawdown_scaling(_crash_series(n_up=200, n_down=0, n_rec=1),
+                                     floor=1.0)
         np.testing.assert_allclose(out["controlled_ret"].values,
-                                   (out["raw_ret"] * out["scale"]).values, rtol=0, atol=1e-15)
+                                   (out["raw_ret"] * out["scale"]).values,
+                                   rtol=0, atol=1e-15)
 
     def test_shallower_drawdown_than_step_rule(self):
         """连续映射会「早减、缓减」，因此最大回撤通常不深于不控制。"""
@@ -241,6 +246,98 @@ class TestReleveringCost(unittest.TestCase):
         self.assertGreater(float(tiny.mean()), 0.25)          # 不贴下限
         self.assertLess(float(tiny.mean()), 0.95)             # 也不长期满仓
         self.assertLess(int(tiny.nunique()), int(wide.nunique()))
+
+
+class TestClosedLedger(unittest.TestCase):
+    """三层账本闭合 —— 这是「清算做闭合」的直接证明。"""
+
+    @staticmethod
+    def _raw() -> pd.Series:
+        return _crash_series()
+
+    def test_ledger_columns_present(self):
+        out = apply_drawdown_scaling(self._raw(), max_cut_at=0.05, floor=0.4)
+        for c in ("scale", "raw_ret", "position_ret", "relever_cost", "cash_ret",
+                  "cash_weight", "net_ret", "controlled_ret"):
+            self.assertIn(c, out.columns)
+
+    def test_position_ledger_is_scale_times_raw(self):
+        out = apply_drawdown_scaling(self._raw(), max_cut_at=0.05, floor=0.4)
+        np.testing.assert_allclose(out["position_ret"].values,
+                                   (out["raw_ret"] * out["scale"]).values,
+                                   rtol=0, atol=1e-15)
+
+    def test_three_layer_identity(self):
+        """controlled_ret == 仓位账 − 费用账 + 现金账（逐位）。"""
+        out = apply_drawdown_control(self._raw(), threshold=0.05, cut=0.4, recovery=0.02)
+        np.testing.assert_allclose(
+            out["controlled_ret"].values,
+            (out["position_ret"] - out["relever_cost"] + out["cash_ret"]).values,
+            rtol=0, atol=1e-15)
+
+    def test_net_ret_equals_controlled_ret(self):
+        out = apply_drawdown_scaling(self._raw(), max_cut_at=0.05, floor=0.4)
+        np.testing.assert_allclose(out["net_ret"].values, out["controlled_ret"].values,
+                                   rtol=0, atol=1e-15)
+
+    def test_internal_cost_matches_independent_recomputation(self):
+        """循环内累计的费用账必须与 `relevering_cost` 独立重算逐位一致。"""
+        out = apply_drawdown_scaling(self._raw(), max_cut_at=0.05, floor=0.4, gross=2.0)
+        recomputed = relevering_cost(out["scale"], gross=2.0)
+        np.testing.assert_allclose(out["relever_cost"].values, recomputed.values,
+                                   rtol=0, atol=1e-15)
+
+    def test_first_day_is_full_so_no_relever_cost(self):
+        """起始为满仓且两态/连续规则在 dd=0 时都给 1.0 → 首日无调杠杆成本。"""
+        for out in (apply_drawdown_control(self._raw()),
+                    apply_drawdown_scaling(self._raw())):
+            self.assertAlmostEqual(float(out["scale"].iloc[0]), 1.0, places=15)
+            self.assertAlmostEqual(float(out["relever_cost"].iloc[0]), 0.0, places=15)
+
+    def test_assert_overlay_closed_passes_on_controlled_ret(self):
+        """★ 核心：受控输出必须是**闭合账本** —— 直接送往对账即可通过。
+
+        只断言判定项 `net_ret`；`position_only_gap` 是诊断项（按定义等于费用账，预期非零）。
+        """
+        raw = self._raw()
+        for out in (apply_drawdown_control(raw, threshold=0.03, cut=0.3, recovery=0.015),
+                    apply_drawdown_scaling(raw, max_cut_at=0.02, floor=0.2)):
+            gaps = assert_overlay_closed(out, raw, out["scale"], gross=2.0)
+            self.assertLess(gaps["net_ret"], 1e-12)
+            # 诊断项：缺口 = 单日**最大**费用账，必然 > 0 且 ≤ 费用**合计**（逐日非负）
+            self.assertGreater(gaps["position_only_gap"], 0.0)
+            self.assertLessEqual(gaps["position_only_gap"],
+                                 gaps["relever_cost_total"] + 1e-12)
+
+    def test_position_only_output_would_fail_reconciliation(self):
+        """反例守卫：只记仓位账（旧口径）送往对账必须失败。"""
+        raw = self._raw()
+        out = apply_drawdown_scaling(raw, max_cut_at=0.02, floor=0.2)
+        position_only = pd.DataFrame({"port_ret": out["position_ret"]})
+        with self.assertRaises(AssertionError):
+            assert_overlay_closed(position_only, raw, out["scale"], gross=2.0)
+
+    def test_include_relever_cost_false_reproduces_position_only(self):
+        """诊断开关：关掉费用账即复现旧口径（= scale × raw_ret）。"""
+        raw = self._raw()
+        out = apply_drawdown_scaling(raw, max_cut_at=0.02, floor=0.2,
+                                     include_relever_cost=False)
+        self.assertAlmostEqual(float(out["relever_cost"].sum()), 0.0, places=15)
+        np.testing.assert_allclose(out["controlled_ret"].values,
+                                   (raw * out["scale"]).values, rtol=0, atol=1e-15)
+
+    def test_cost_scales_with_gross(self):
+        raw = self._raw()
+        g1 = apply_drawdown_scaling(raw, max_cut_at=0.02, floor=0.2, gross=1.0)
+        g2 = apply_drawdown_scaling(raw, max_cut_at=0.02, floor=0.2, gross=2.0)
+        self.assertAlmostEqual(float(g2["relever_cost"].sum()),
+                               2.0 * float(g1["relever_cost"].sum()), places=9)
+
+    def test_non_positive_gross_raises(self):
+        with self.assertRaises(ValueError):
+            apply_drawdown_scaling(self._raw(), gross=0.0)
+        with self.assertRaises(ValueError):
+            apply_drawdown_control(self._raw(), gross=-1.0)
 
 
 class TestParameterValidation(unittest.TestCase):

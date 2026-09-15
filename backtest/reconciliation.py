@@ -263,7 +263,9 @@ def assert_overlay_closed(
     Returns
     -------
     dict[str, float]
-        各层最大绝对偏差，供报告使用。
+        `net_ret`（**判定项**，超容差即 raise）；`position_only_gap` 与
+        `relever_cost_total` 是**诊断项**：前者是「若把仓位账当净收益会差多少」
+        （按定义恰等于费用账），**预期非零，不是违规**。
     """
     ledger = close_overlay_ledger(raw_ret, scale, gross=gross,
                                  buy_cost=buy_cost, sell_cost=sell_cost)
@@ -273,18 +275,18 @@ def assert_overlay_closed(
 
     gaps = {
         "net_ret": _max_abs_gap(res[col], ledger["net_ret"], ledger.index),
-        "position_ret": _max_abs_gap(res[col], ledger["position_ret"], ledger.index),
+        "position_only_gap": _max_abs_gap(res[col], ledger["position_ret"], ledger.index),
+        "relever_cost_total": float(ledger["relever_cost"].sum()),
     }
     if gaps["net_ret"] > tol:
-        lever = float(ledger["relever_cost"].sum())
+        lever = gaps["relever_cost_total"]
         cash = float(ledger["cash_weight"].mean())
         hint = ""
         if lever > tol:
             hint = (f"\n  费用账（调杠杆成本）合计 {lever:.6f}，平均现金占比 {cash:.3f}。"
-                    "\n  ⚠️ 若 res 直接取自 risk.drawdown_control 的 controlled_ret，"
-                    "**漏记的正是费用账这一层** ——"
-                    "\n     该模块只产出仓位账（scale × raw_ret）。补法："
-                    "`close_overlay_ledger(raw_ret, scale)['net_ret']`。")
+                    "\n  ⚠️ 若 res 直接取自 risk.drawdown_control 的 controlled_ret 而该模块"
+                    "漏记费用账，差额即此处。"
+                    "\n     补法：`close_overlay_ledger(raw_ret, scale)['net_ret']`。")
         raise AssertionError(
             f"覆盖层清算不闭合：net_ret 最大偏差 {gaps['net_ret']:.3e} > {tol:.1e}{hint}")
     return gaps
