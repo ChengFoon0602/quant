@@ -78,6 +78,7 @@ class PortfolioOrchestrator:
         max_turnover: Optional[float] = None,
         buy_cost: float = BUY_COST,
         sell_cost: float = SELL_COST,
+        slippage: float = 0.0,
     ):
         self.rebalance = rebalance
         self.max_leverage = max_leverage
@@ -93,6 +94,7 @@ class PortfolioOrchestrator:
         self.max_turnover: None = None  # 恒为 None —— 上限未实现
         self.buy_cost = buy_cost
         self.sell_cost = sell_cost
+        self.slippage = slippage
 
     # ── 调仓日历 ──────────────────────────────────────────
     def rebalance_dates(self, dates_index: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -223,6 +225,9 @@ class PortfolioOrchestrator:
         buy_turnover = delta_w.clip(lower=0.0).sum(axis=1)
         sell_turnover = (-delta_w).clip(lower=0.0).sum(axis=1)
         cost = buy_turnover * self.buy_cost + sell_turnover * self.sell_cost
+        if self.slippage:
+            # 滑点按**总换手**计提（单边费率口径）：|ΔW| = 买入换手 + 卖出换手
+            cost = cost + turnover * self.slippage
 
         port_ret = gross_ret - cost
         cum = (1.0 + port_ret).cumprod()

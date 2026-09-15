@@ -89,6 +89,7 @@ def build_weight_portfolio(
     sell_cost: float = SELL_COST,
     hold_days: int = 5,
     min_stocks_mult: int = 2,
+    slippage: float = 0.0,
     position_scale: Optional[pd.Series] = None,
     gate: Optional[pd.Series] = None,
     trade_limits: Optional[Tuple[pd.DataFrame, pd.DataFrame]] = None,
@@ -125,6 +126,11 @@ def build_weight_portfolio(
         其中 `base = max(int(1/top_q), int(1/bottom_q))`。默认 2 是既有口径，
         **与 `models/portfolio_backtest.py` 的默认 3 不同**（历史遗留差异，
         见 docs/回测语义对照表.md「已知局限」③）。本参数只做显式化，不改变默认行为。
+    slippage : float, default 0.0
+        **单边滑点**（按总换手计提：`(买入+卖出换手) × slippage`）。
+        默认 0.0 = **不含滑点**，与全部历史口径一致。
+        ⚠️ 滑点是否进主口径是**会改变全部已发布数字**的决策 ——
+        先量化（`run_slippage_impact.py`）再定，不要静默改默认。
     position_scale : Optional[pd.Series], default None
         逐日仓位系数（如市场高波动时降低仓位），后乘于实际持仓 W 上。
     gate : Optional[pd.Series], default None
@@ -238,6 +244,9 @@ def build_weight_portfolio(
     buy_turnover = delta_w.clip(lower=0.0).sum(axis=1)
     sell_turnover = (-delta_w).clip(lower=0.0).sum(axis=1)
     cost_deduction = buy_turnover * buy_cost + sell_turnover * sell_cost
+    if slippage:
+        # 滑点按**总换手**计提（单边费率口径）：|ΔW| = 买入换手 + 卖出换手
+        cost_deduction = cost_deduction + (buy_turnover + sell_turnover) * slippage
     port_ret = gross_ret - cost_deduction
 
     # 丢弃建仓爬坡期

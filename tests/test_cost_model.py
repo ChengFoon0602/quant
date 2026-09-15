@@ -161,11 +161,46 @@ class TestCostModelDataclass(unittest.TestCase):
         # 多空各一端
         self.assertAlmostEqual(cm.deduction(1.0, 1.0), ROUND_TRIP, places=8)
 
+    def test_slippage_default_is_zero_everywhere(self):
+        """滑点参数在各入口的**默认值必须为 0.0**（= 不含滑点）。
+
+        这是「滑点暂不进主口径」的显式守护：任何一处把默认改成 SLIPPAGE=0.0005
+        都会**静默改变全部已发布数字**。该决策须先量化（run_slippage_impact.py）再定。
+        """
+        from backtest.engine import run
+        from models.portfolio_backtest import build_portfolio
+        from risk.orchestrator import PortfolioOrchestrator
+        from risk.portfolio import build_weight_portfolio
+
+        for func, param in [
+            (build_weight_portfolio, "slippage"),
+            (build_portfolio, "slippage"),
+            (PortfolioOrchestrator.__init__, "slippage"),
+        ]:
+            self.assertEqual(
+                _default_of(func, param), 0.0,
+                f"{func.__module__}.{func.__name__} 的 slippage 默认值漂移（应为 0.0，"
+                "滑点进主口径须先量化再定）",
+            )
+        # engine 无 slippage 参数（单票时序，暂不纳入）—— 仅作存在性说明，不断言
+
     def test_slippage_separate(self):
         """滑点另计，不并入双边合计。"""
         cm = CostModel()
         self.assertAlmostEqual(cm.with_slippage(1.0), 0.0005, places=8)
         self.assertAlmostEqual(cm.round_trip, ROUND_TRIP, places=8)
+
+    def test_deduction_with_slippage_adds_on_total_turnover(self):
+        """include_slippage=True 时按**总换手**叠加滑点。"""
+        cm = CostModel()
+        # 无滑点：多空各一端 = ROUND_TRIP
+        self.assertAlmostEqual(cm.deduction(1.0, 1.0), ROUND_TRIP, places=8)
+        # 含滑点：ROUND_TRIP + (1.0 + 1.0) * 0.0005
+        self.assertAlmostEqual(
+            cm.deduction(1.0, 1.0, include_slippage=True),
+            ROUND_TRIP + 2.0 * cm.slippage, places=8)
+        # 默认 False 保持历史口径
+        self.assertAlmostEqual(cm.deduction(1.0, 1.0), ROUND_TRIP, places=8)
 
     def test_frozen(self):
         """成本模型不可变，防止运行中被意外篡改。"""

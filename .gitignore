@@ -23,6 +23,7 @@ reconciliation_report.txt
 tradability_report.txt
 drawdown_control_report.txt
 drawdown_wf_report.txt
+slippage_report.txt
 
 # IDE
 .vscode/

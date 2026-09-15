@@ -61,7 +61,8 @@ class CostModel:
         """双边合计成本（不含滑点）。"""
         return self.buy_cost + self.sell_cost
 
-    def deduction(self, buy_turnover: float, sell_turnover: float) -> float:
+    def deduction(self, buy_turnover: float, sell_turnover: float,
+                  *, include_slippage: bool = False) -> float:
         """按买入/卖出方向分别计提的成本额。
 
         Parameters
@@ -70,8 +71,14 @@ class CostModel:
             当日增仓换手（Σ max(ΔW, 0)）。
         sell_turnover : float
             当日减仓换手（Σ max(-ΔW, 0)）。
+        include_slippage : bool, default False
+            是否叠加滑点。**默认 False 以保持历史口径不变** —— 滑点是否进主口径
+            是一个会改变全部已发布数字的决策，须先量化再定（见 `run_slippage_impact.py`）。
         """
-        return buy_turnover * self.buy_cost + sell_turnover * self.sell_cost
+        base = buy_turnover * self.buy_cost + sell_turnover * self.sell_cost
+        if include_slippage:
+            base += (buy_turnover + sell_turnover) * self.slippage
+        return base
 
     def with_slippage(self, turnover: float) -> float:
         """在方向成本之外叠加滑点（按总换手计提）。"""

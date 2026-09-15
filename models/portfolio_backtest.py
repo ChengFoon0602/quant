@@ -131,6 +131,7 @@ def build_portfolio(
     cost: float | None = None,
     buy_cost: float = BUY_COST,
     sell_cost: float = SELL_COST,
+    slippage: float = 0.0,
     hold_days: int = 5,
     min_stocks_mult: int = 3,
     position_scale: pd.Series | None = None,
@@ -245,6 +246,9 @@ def build_portfolio(
     buy_turnover = delta_w.clip(lower=0.0).sum(axis=1)
     sell_turnover = (-delta_w).clip(lower=0.0).sum(axis=1)
     port_ret = port_gross - buy_turnover * buy_cost - sell_turnover * sell_cost
+    if slippage:
+        # 滑点按**总换手**计提（单边费率口径）：|ΔW| = 买入换手 + 卖出换手
+        port_ret = port_ret - (buy_turnover + sell_turnover) * slippage
 
     # 丢弃建仓爬坡期
     port_ret = port_ret.iloc[hold_days:].dropna()
