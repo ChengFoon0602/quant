@@ -21,7 +21,8 @@ quant/
 ├── docs/                     # 口径论证、回测语义对照表、实施计划
 ├── run_reconciliation.py     # 真实数据账本对账（离线运行器 → reconciliation_report.txt）
 ├── run_tradability_impact.py # 交易约束代价量化（离线运行器 → tradability_report.txt）
-├── run_drawdown_control.py   # 回撤控制参数网格（离线运行器 → drawdown_control_report.txt）
+├── run_drawdown_control.py   # 回撤控制参数网格 + 前沿对比（离线运行器 → drawdown_control_report.txt）
+├── run_drawdown_walk_forward.py # 回撤控制 walk-forward 复核（离线运行器 → drawdown_wf_report.txt）
 ├── viz/                      # 可视化工具
 └── bootstrap.py              # 首次数据拉取脚本
 ```
@@ -77,7 +78,7 @@ AI 干预深度 ∝ 1 ÷ 错误代价。账本三对账（仓位 / 流水 / 盈�
 | **成交假设断言** | `tests/test_execution_assumptions.py`：涨跌停识别（主板/创业板/ST/北交所）+ **撮合层真拦单**；`test_price_adjust.py` 锁死三复权不共用文件 |
 | **未实现参数守卫** | `tests/test_risk_constraints.py`：`max_turnover` 等未实现的约束必须 `raise`，不允许静默忽略；`max_leverage` 语义锁死为 gross（`Σ\|W\|`）|
 | **交易可行性度量** | `risk/tradability.py` + `run_tradability_impact.py`：**跨 4 条链路**量化涨跌停约束的代价（换手几乎不变但夏普相对掉 3%~12%，**下界**；结论方向均未改变）|
-| **回撤控制（opt-in）** | `risk/drawdown_control.py` 两个变体：两态滞后带 + **连续映射（自适应形态）**；`run_drawdown_control.py` 以**匹配平均仓位的前沿对比**证明连续响应在 4/4 档全胜（平均夏普 +0.21）。**未接入生产** |
+| **回撤控制（opt-in）** | `risk/drawdown_control.py` 两个变体：两态滞后带 + **连续映射（自适应形态）**。`run_drawdown_control.py` 以**匹配仓位的前沿对比**证明连续在 4/4 档胜出；`run_drawdown_walk_forward.py` 进一步做 WF 复核：连续优于两态**样本外 8/11 成立**，夏普 1.48→2.15、回撤 −29.5%→−8.0%，**但 CAGR 腰斩（27.5%→13.4%）、敞口降至 1/3** → 是重配比而非免费保护。**未接入生产** |
 | **PIT 自检** | `data/pit_auditor.py` + `run_pit_audit.py` 离线审计基本面缓存日期约定 |
 | **向量化引擎** | `build_portfolio` 权重构造向量化（27×，等价性测试逐位守护） |
 | **测试规模** | 257 项全绿：铁律 1/2/3 编译、契约断言、自洽对账、时点契约、成交假设、面板构建、约束守卫、回撤控制、正交化、IC 锚定方向、7 算子、组合等价、AM-GM |
@@ -109,6 +110,7 @@ python report.py                       # 生成回测报告
 python run_reconciliation.py           # 真实报告数据账本对账（790 票，约 10s）
 python run_tradability_impact.py       # 交易约束代价量化（4 条链路，约 40s）
 python run_drawdown_control.py         # 回撤控制参数网格 + 前沿对比（790 票，约 25s）
+python run_drawdown_walk_forward.py    # 回撤控制 walk-forward 复核（790 票，约 30s）
 ```
 
 > 数据已缓存在 `data/cache_*`（日线 + 基本面 + ETF + 指数成分），fetcher 负责增量更新。
