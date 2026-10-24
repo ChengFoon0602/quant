@@ -39,7 +39,6 @@ THIS_DIR = __import__("pathlib").Path(__file__).parent
 PROJECT_ROOT = THIS_DIR.parent.parent
 ZZ500_DIR = PROJECT_ROOT / "strategies" / "zz500_crowding_trial"
 FEATURE_SEL_DIR = PROJECT_ROOT / "strategies" / "feature_selection"
-PIT_TRIAL_DIR = PROJECT_ROOT / "strategies" / "zz500_pit_trial"
 
 # 本目录 config.py 必须在 sys.path 最前（共享模块 `from config import ...`
 # 因此拿到 INDEX="hs300" 的配置）。注意 insert 顺序：最后 insert 的在最前。
@@ -115,13 +114,18 @@ def build_fundamental_long(close: pd.DataFrame, member: pd.DataFrame) -> pd.Data
 
 
 def build_alpha_matrix(close: pd.DataFrame, volume: pd.DataFrame,
-                       member: pd.DataFrame, force: bool = False) -> pd.DataFrame:
-    """hs300 量价 16 因子长表（PIT 成员掩码），缓存 X_matrix_hs300.csv。
+                       member: pd.DataFrame, idx: str = "hs300",
+                       force: bool = False) -> pd.DataFrame:
+    """量价因子长表（PIT 成员掩码），缓存 X_matrix_{idx}.csv。
 
-    与 build_pit_matrix.build_and_save 同构造，但因子池用 FACTOR_COLS（与
-    zz500 完全一致，跨指数可比）。缓存存在时直接复用。
+    两指数走**同一份 FACTOR_COLS**（CSI300 PIT 上提纯的 15 因子），
+    各自在自己的 PIT 面板上现算 —— 这才是真正的跨指数可比。
+
+    ⚠ 2026-10-24 之前 zz500 分支读的是 `zz500_pit_trial/X_matrix.csv`，
+    那份矩阵用的是 zz500 **自己**提纯的池，与 hs300 的池不同源 ——
+    「同一代码路径、同一口径」名不副实。已改为两边各自现算同一池。
     """
-    path = THIS_DIR / "X_matrix_hs300.csv"
+    path = THIS_DIR / f"X_matrix_{idx}.csv"
     if path.exists() and not force:
         print(f"  复用缓存 {path.name}")
         return load_factor_matrix(path)
@@ -148,18 +152,15 @@ def build_alpha_matrix(close: pd.DataFrame, volume: pd.DataFrame,
     return X
 
 
-def compute_index(idx: str) -> dict:
+def compute_index(idx: str, force: bool = False) -> dict:
     """对一个指数跑完整套拥挤度分析，返回全部结果 dict。"""
     print(f"\n{'─' * 72}\n  计算 {IDX_LABEL[idx]}（{idx}）\n{'─' * 72}")
     close, volume, member = load_pit_panel(idx)
     turnover = build_market_features_pit(close, volume, member)["market_turnover_20d"]
     print(f"  面板 {close.shape} | 月末成员均数 {member.sum(axis=1).mean():.0f}")
 
-    # ── 量价池 ──
-    if idx == "zz500":
-        X_long = load_factor_matrix(PIT_TRIAL_DIR / "X_matrix.csv")
-    else:
-        X_long = build_alpha_matrix(close, volume, member)
+    # ── 量价池：两指数用同一份 FACTOR_COLS，各自在自身 PIT 面板现算 ──
+    X_long = build_alpha_matrix(close, volume, member, idx=idx, force=force)
     med_v = month_end_dates(X_long.index.get_level_values(0).unique())
     crowd_v = compute_all(X_long, close, turnover)
     fr_v = factor_monthly_returns(X_long, med_v, close)
@@ -404,14 +405,16 @@ def main():
     import argparse
     ap = argparse.ArgumentParser(description="跨指数拥挤度验证")
     ap.add_argument("--only", choices=["hs300", "zz500", "both"], default="both",
-                    help="只跑一个指数（zz500 需要 zz500_pit_trial/X_matrix.csv 已按新池重建）")
+                    help="只跑一个指数")
+    ap.add_argument("--force", action="store_true",
+                    help="强制重算 alpha 因子矩阵（忽略 X_matrix_{idx}.csv 缓存）")
     args = ap.parse_args()
 
     section(f"方向C 延伸④：跨指数验证（{IDX_LABEL[INDEX]}）")
     print(f"[*] 复用 zz500_crowding_trial 代码，仅跑 {args.only}。")
 
-    rv = compute_index("zz500") if args.only in ("zz500", "both") else None
-    rh = compute_index("hs300") if args.only in ("hs300", "both") else None
+    rv = compute_index("zz500", force=args.force) if args.only in ("zz500", "both") else None
+    rh = compute_index("hs300", force=args.force) if args.only in ("hs300", "both") else None
 
     section("生成图表")
     if rh is not None:

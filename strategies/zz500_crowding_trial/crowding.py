@@ -36,9 +36,19 @@ from config import (
 
 
 def load_factor_matrix(path) -> pd.DataFrame:
-    """读取 X_matrix.csv → 月末截面长表 pivot 为 date×factor 宽表 + 返回原始长表。"""
-    X = pd.read_csv(path, index_col=[0, 1], parse_dates=[0])
-    X.index = X.index.set_levels(X.index.levels[1].astype(str), level=1)
+    """读取 X_matrix.csv → 长表（MultiIndex date,symbol，列=因子）。
+
+    ⚠ symbol 必须按字符串读入：直接 `read_csv` 会把 "000001" 推断成整数 1，
+    再 astype(str) 就变成 "1"，与 close 面板的 "000001" **join 不上**——
+    深市主板（000/001/002/003）全部错位，沪市无前导零的却对得上，
+    于是结果"看起来合理"但其实是错的，且只在**读缓存**时发生（首次新建走内存，
+    结果正确）——这是一种极难察觉的「首跑 vs 复跑」不一致。2026-10-24 实测踩到。
+    """
+    raw = pd.read_csv(path, dtype=str)
+    date_col, sym_col = raw.columns[0], raw.columns[1]
+    raw[date_col] = pd.to_datetime(raw[date_col])
+    X = raw.set_index([date_col, sym_col]).astype(float)
+    X.index.names = ["date", "symbol"]
     return X
 
 

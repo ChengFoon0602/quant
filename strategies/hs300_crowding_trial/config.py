@@ -42,12 +42,16 @@ MARKET_EVENTS = {
     "2024-02-29": "2024 微盘崩",
 }
 
-# X_matrix 的因子列（与 zz500 完全一致，跨指数可比）
+# X_matrix 的因子列 —— 两指数共用同一份，跨指数可比
 #
 # ⚠ 2026-10-24 换池：原 16 因子是 Alpha191 口径修复前（前复权价 + VWAP 量纲错配）
 # 筛出的，池本身不可信。现改为修复后在同一套 PIT 面板上重新提纯的 15 因子池
 # （见 strategies/feature_selection/report.md）。
-# 旧矩阵备份为 X_matrix_hs300_pre_alpha191fix.csv。
+# hs300 旧矩阵备份为 X_matrix_hs300_pre_alpha191fix.csv。
+#
+# ⚠ 同日改口径：zz500 分支不再读 zz500_pit_trial/X_matrix.csv（那是 zz500
+# 自己提纯的池，与 hs300 不同源），改为用本份 FACTOR_COLS 在 zz500 PIT 面板上
+# 现算。两指数「同一因子池 + 同一代码路径」才真正成立。
 # 换池后 zz500 分支必须先重建 zz500_pit_trial/X_matrix.csv，否则会因缺列报错。
 FACTOR_COLS = [
     "alpha087", "alpha044", "alpha003", "alpha001", "alpha116",
