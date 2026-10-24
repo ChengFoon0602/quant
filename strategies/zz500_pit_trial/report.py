@@ -94,10 +94,13 @@ EARLY_STOP = 50
 MARKET_COLS = ["market_vol_20d", "market_turnover_20d"]
 
 # CSI 300 PIT 基准（models/ 已跑结果，供报告对照）
+# CSI300 对照（2026-10-24 同步为 Alpha191 口径修复后的新数字，见 models/report.md）
+# 旧值（0.0512 / 0.036 / 0.306 等）为修复前口径，已作废。
 CSI300_REF = {
-    "ic_mean": 0.0512, "ic_ir": 0.269, "ic_t": 15.28,
-    "ls_sharpe_net": 0.036, "lo_sharpe": 1.187, "lo_annual": 0.2867,
-    "wf_sharpe": 0.306, "market_sharpe": 0.249,
+    "ic_mean": 0.0469, "ic_ir": 0.250, "ic_t": 14.19,
+    "ls_sharpe_net": 1.025, "lo_sharpe": 1.401, "lo_annual": 0.3412,
+    "wf_sharpe": 1.582, "market_sharpe": 0.249,
+    "wf_pit_select_sharpe": 0.524,   # 消除 selection bias，唯一可引用
 }
 
 
@@ -536,7 +539,12 @@ def walk_forward_pit_select(close_matrix, volume_matrix, member_daily, keep_tens
         ts = pred.columns.intersection(close_matrix.columns)
         pred = pred.loc[td, ts]
 
-        pf = build_portfolio(pred, close_matrix.loc[td, ts], long_only=False, hold_days=10)
+        # 测试窗口内长期停牌/无行情的个股，close 整列为 NaN —— 直接断言失败。
+        # 它们本就不该进组合（无价可交易），剔除而非放宽 invariants。
+        px = close_matrix.loc[td, ts].dropna(axis=1, how="all")
+        pred = pred.loc[td, px.columns]
+
+        pf = build_portfolio(pred, px, long_only=False, hold_days=10)
         m = performance_metrics(pf["port_ret"])
         yearly.append({"year": year, "annual": m["annual"], "sharpe": m["sharpe"],
                        "mdd": m["mdd"], "n": m["n"], "pool_size": len(pool_yr)})
@@ -554,7 +562,7 @@ def walk_forward_pit_select(close_matrix, volume_matrix, member_daily, keep_tens
     m_wf = performance_metrics(all_wf)
     print(f"\n  合并 WF (PIT Select): 年化={m_wf['annual']:+.2%} "
           f"SR={m_wf['sharpe']:+.3f} 回撤={m_wf['mdd']:+.2%}")
-    print(f"  对照: 固定池 WF SR=1.438（含 selection bias）")
+    print(f"  对照: 固定池 WF SR={m_wf['sharpe']:.3f}（含 selection bias）")
 
     # ── 拼接全部年份预测 → 真正的 OOF 指标（消除 selection bias）──
     if preds:
@@ -581,7 +589,7 @@ def walk_forward_pit_select(close_matrix, volume_matrix, member_daily, keep_tens
         oof_ic_ir = oof_ic / ic_series.std(ddof=0) if ic_series.std() > 0 else 0
         oof_ic_t = oof_ic_ir * np.sqrt(len(ic_series))
         print(f"  真实 OOF Rank IC = {oof_ic:+.4f}  IC_IR = {oof_ic_ir:+.3f}  t = {oof_ic_t:+.1f}")
-        print(f"  对照: 固定池 OOF IC = +0.095 (含 selection bias)")
+        print(f"  对照: 固定池 OOF IC = {metrics['ic_mean']:+.4f} (含 selection bias)")
 
     return yearly_df, all_wf, m_wf
 
