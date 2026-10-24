@@ -59,6 +59,13 @@
   **不证明**与研报公式一致；公式一致性由 `docs/alpha191_公式语义表.csv` 与外部对拍负责。
 - 守卫测试：`pytest tests/test_alpha191_health.py`（无全 NaN / 有截面分散度 / vwap 量纲 /
   alpha001 对照组不变量）。`docs/alpha191_复现审计_2026-10-24.md` 记录了修复前的实测缺陷。
+- **回测前必须清洗窗口切片**：按训练/测试窗口切片 `close_matrix` 后，长期停牌股会留下
+  整列 NaN，触发 `assert_price_panel` 的 `InvariantViolation`（zz500 PIT-Select 实测踩到）。
+  正确做法是切片后 `dropna(axis=1, how="all")` 剔除这些列——**它们无价可交易，本就不该进
+  组合**；**不要**放宽 `backtest/invariants.py` 的断言，那条断言拦的是真 join 错误。
+- **批量下载必须区分错误类型**：`rows` 为空不等于「该股无数据」。baostock 限流时
+  `rs.error_code != "0"` 且 rows 为空，若只看 rows 会把几百只正常股票误记为「停牌或退市」
+  （zz500 首轮 485 只假失败即由此产生）。先判 `error_code` 再判空。
 
 ### 3.6 数据可复现性 (Data Manifest)
 
