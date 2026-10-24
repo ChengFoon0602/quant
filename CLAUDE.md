@@ -40,6 +40,26 @@
 - 不复权（adjust="3"）：真实成交价，需配复权因子表才能算总回报
 - `data/fetcher.py::_cache_path` 已按复权方式区分缓存文件（`{symbol}.csv` 前复权 / `{symbol}_adj{adjust}.csv` 其余），避免互相覆盖
 
+### 3.5.1 Alpha191 因子计算口径（2026-10-24 修订，违反即数字作废）
+
+- **因子必须用后复权**：`compute_factor_matrix` 默认 `factor_adjust="1"`。返回给回测的
+  `close_matrix` 仍用前复权（`price_adjust="2"`），收益率在两种复权下一致，不影响绩效可比性。
+- **VWAP 禁止用 `amount / volume`**：那是**未复权**成交均价，与复权 close 不同量纲。
+  修复前实测 `vwap/close` 中位 1.31、最大 4.01（vwap 高于当日最高价），导致 15 个因子退化为常数。
+  唯一正确入口是 `data/price_adjust.py::build_true_vwap`：
+  `vwap_adj1 = (amount/volume) × (close_adj1/close_adj3)`。
+- **数据前置**：`python data/download_adjust_cache.py --index hs300` 补齐 adj1/adj3 缓存
+  （adj1 只查 close+volume 后由 adj3 合成 OHLC，与 baostock 全字段真值偏差 1e-16）。
+- **RANK 必须走面板**：`compute_factor_matrix` 或 `compute_panel_factor`。
+  逐股票 `fn(df)` 会让 `RANK` 退化成单股票时序排名（语义错误）。`TSRANK` 无此问题（两种模式等价）。
+- **退化因子不修**：`signals/alpha191/factors.py::DEGENERATE_FACTORS`（12 个）是研报公式
+  自身缺陷（`MIN(HIGH-LOW,0) ≡ 0`、日内均价必落在 `[LOW,HIGH]` 内导致正负部截断恒 0），
+  保留函数编号、由 purify 跳过，**不要试图"修正"**。
+- **golden 基线只防回归**：`tests/golden/factor_hashes.json` 锁的是当前实现输出，
+  **不证明**与研报公式一致；公式一致性由 `docs/alpha191_公式语义表.csv` 与外部对拍负责。
+- 守卫测试：`pytest tests/test_alpha191_health.py`（无全 NaN / 有截面分散度 / vwap 量纲 /
+  alpha001 对照组不变量）。`docs/alpha191_复现审计_2026-10-24.md` 记录了修复前的实测缺陷。
+
 ### 3.6 数据可复现性 (Data Manifest)
 
 - `data/manifest.py` 生成 `data/manifest.json`，记录缓存文件的行数/日期范围/抓取时间/sha256，作为数据层快照锚点（纳入 git）
