@@ -169,9 +169,10 @@ def run_etf_strategy():
         "动量+股债金避险轮动": metrics_safe_overlay,
     }).T
 
-    cols_to_print = ["annual_return", "annual_vol", "sharpe", "max_drawdown", "calmar", "win_rate", "profit_loss_ratio"]
+    cols_to_print = ["annual_return", "annual_return_arith", "annual_vol", "sharpe", "max_drawdown", "calmar", "win_rate", "profit_loss_ratio"]
     disp_df = summary_table[cols_to_print].copy()
     disp_df["annual_return"] = disp_df["annual_return"].map("{:+.2%}".format)
+    disp_df["annual_return_arith"] = disp_df["annual_return_arith"].map("{:+.2%}".format)
     disp_df["annual_vol"] = disp_df["annual_vol"].map("{:.2%}".format)
     disp_df["sharpe"] = disp_df["sharpe"].map("{:.3f}".format)
     disp_df["max_drawdown"] = disp_df["max_drawdown"].map("{:+.2%}".format)
@@ -202,7 +203,7 @@ def run_etf_strategy():
 
     # 图 1: 累计净值与回撤对比
     curves_to_plot = {
-        "股债金避险轮动 (SR=1.12)": combined_cum,
+        f"股债金避险轮动 (SR={metrics_safe_overlay['sharpe']:.2f})": combined_cum,
         "纯Sharpe动量轮动": res_mom_pure["cum"],
         "全池等权基准": eq_cum.reindex(combined_cum.index),
         "沪深300基准 (510300)": hs300_cum.reindex(combined_cum.index),

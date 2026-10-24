@@ -168,9 +168,10 @@ def run_all_weather_backtest(
         "宏观自适应风险平价": m_macro_rp,
     }).T
 
-    cols_print = ["annual_return", "annual_vol", "sharpe", "max_drawdown", "calmar", "win_rate", "profit_loss_ratio"]
+    cols_print = ["annual_return", "annual_return_arith", "annual_vol", "sharpe", "max_drawdown", "calmar", "win_rate", "profit_loss_ratio"]
     disp_df = summary_df[cols_print].copy()
     disp_df["annual_return"] = disp_df["annual_return"].map("{:+.2%}".format)
+    disp_df["annual_return_arith"] = disp_df["annual_return_arith"].map("{:+.2%}".format)
     disp_df["annual_vol"] = disp_df["annual_vol"].map("{:.2%}".format)
     disp_df["sharpe"] = disp_df["sharpe"].map("{:.3f}".format)
     disp_df["max_drawdown"] = disp_df["max_drawdown"].map("{:+.2%}".format)

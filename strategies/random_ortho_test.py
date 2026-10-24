@@ -13,7 +13,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from data.fetcher import load_daily, cache_summary
-from signals.alpha191.calculator import get_factor_func
+from signals.alpha191.calculator import get_factor_func, compute_panel_factor
 
 # ── 配置 ─────────────────────────────────────────────────
 N_STOCKS = 300
@@ -60,7 +60,7 @@ symbols = sorted(cache["symbol"].tolist())[:N_STOCKS]
 
 all_dfs = {}
 for sym in symbols:
-    df = load_daily(sym)
+    df = load_daily(sym, adjust="1")  # 后复权
     if df is None or len(df) < 100:
         continue
     df = df.loc[(df.index >= DATE_START) & (df.index <= DATE_END)]
@@ -84,16 +84,8 @@ print("\n计算因子...")
 factor_mats = {}
 for fid in chosen:
     fn = get_factor_func(fid)
-    rows = {}
-    for sym, df in all_dfs.items():
-        try:
-            result = fn(df)
-            if not isinstance(result, pd.Series):
-                result = pd.Series(result, index=df.index)
-            rows[sym] = result
-        except Exception:
-            rows[sym] = pd.Series(np.nan, index=df.index)
-    factor_mats[fid] = pd.DataFrame(rows).sort_index()
+    # 面板模式：RANK = 截面排名（逐股票调用会让 RANK 退化成时序排名）
+    factor_mats[fid] = compute_panel_factor(all_dfs, fn)
 
 # 对齐
 cd = close_matrix.index
