@@ -76,6 +76,13 @@ models/oof_predictions.csv
 models/feature_importance.csv
 models/summary.json
 
+# Alpha191 口径修复（2026-10-24）重跑生成物，同上处理（体积 10–16 MB，可重跑）
+models/oof_predictions_newpool.csv
+models/oof_predictions_pit_select.csv
+models/wf_pit_ic_panel.csv
+models/wf_pit_fm_panel.csv
+models/*/oof_predictions.csv
+
 # 线性基线生成物 (通过 linear_baseline.py 重新生成)
 models/oof_pred_equal_weight.csv
 models/oof_pred_icir_weight.csv
@@ -115,7 +122,7 @@ strategies/zz500_crowding_trial/fundamental_crowding_time_series.csv
 strategies/zz500_crowding_trial/event_study_*.csv
 
 # 方向C 延伸④（跨指数）运行时产物（可重建）
-strategies/hs300_crowding_trial/X_matrix_hs300.csv
+strategies/hs300_crowding_trial/X_matrix_hs300*.csv
 strategies/hs300_crowding_trial/crowding_time_series_*.csv
 strategies/hs300_crowding_trial/fundamental_crowding_time_series_*.csv
 strategies/hs300_crowding_trial/event_study_*.csv
@@ -135,3 +142,6 @@ Interview_Project_Story_CN_EN.pdf
 
 # Agent 工作记忆（会话日志 / 长期笔记，仅本机使用，不入版本库）
 .workbuddy/
+
+# 竞赛材料（个人参赛资料：策略说明、协作清单等，仅本机使用，不入版本库）
+竞赛材料/

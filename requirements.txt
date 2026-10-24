@@ -5,6 +5,9 @@
 # 和 tests/test_methodology.py 确认无数值回归。
 #
 # 安装：pip install -r requirements.txt
+#   ⚠️ 本仓库使用项目内独立 venv：D:\桌面文件\quant\.venv
+#      本文件 pin 的 numpy 2.1.3 / pandas 2.3.3 / scipy 1.16.3 / matplotlib 3.9.2
+#      与全局 Python 上的现代版本（numpy>=2.5 等）区间无交集，**切勿装进全局解释器**。
 #
 # 注意：baostock / akshare 为国内数据源，版本更新频繁，若拉取接口变动，
 # 需同步检查 data/fetcher.py 的解析逻辑。
@@ -24,3 +27,26 @@ matplotlib==3.9.2
 # ── 机器学习 ────────────────────────────
 lightgbm==4.7.0
 scikit-learn==1.9.0
+
+# ─────────────────────────────────────────────────────────────────────
+# 2026-10-17 补录：以下 6 项此前被代码 import 但本文件漏声明，会导致
+# 按本文件建环境后项目跑不起来。版本取 2026-10-17 实测装成值。
+# 它们**尚未被 tests/factor_golden_baseline.py 覆盖**；日后若升级其版本，
+# 同样按本文件头的规则先跑回归测试。
+# ─────────────────────────────────────────────────────────────────────
+
+# ── 数据处理（select_features.py / build_*_matrix.py / 横截面）──
+polars==2.0.0
+
+# ── 深度学习（models/nn_trainer.py）──
+# Windows 上 PyPI 的 torch 轮子本身就是 CPU 版（其 nvidia-* 依赖均限定
+# platform_system == "Linux"），故无需 PyTorch 专用索引。
+torch==2.14.1
+
+# ── 报告导出（reportlab / xhtml2pdf）──
+reportlab==5.0.1
+xhtml2pdf==0.2.24
+
+# ── 工具 ────────────────────────────────
+requests==2.34.2          # 数据拉取（baostock/akshare 亦依赖）
+pytest==9.1.1             # tests/

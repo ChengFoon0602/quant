@@ -16,7 +16,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import baostock as bs
-import akshare as ak
 
 from backtest.invariants import (  # 输入契约断言（零项目内依赖，不构成循环导入）
     InvariantViolation,
@@ -90,7 +89,9 @@ def get_csi300_constituents() -> pd.DataFrame:
         })
     if rows:
         return pd.DataFrame(rows)
-    # 回退 akshare
+    # 回退 akshare（延迟导入：akshare 仅此回退路径与退市股列表使用，
+    # 做成模块级硬依赖会让「只读缓存」的调用方也被迫安装）
+    import akshare as ak
     df = ak.index_stock_cons(symbol="000300")
     df = df.rename(columns={"品种代码": "symbol", "品种名称": "name", "纳入日期": "in_date"})
     df["in_date"] = pd.to_datetime(df["in_date"], errors="coerce")
@@ -183,6 +184,11 @@ def download_daily(
     rows = []
     while (rs.error_code == "0") and rs.next():
         rows.append(rs.get_row_data())
+
+    if rs.error_code != "0":
+        # 服务端侧错误（限流 / 会话断开 / 参数非法）——与「该股无数据」是两回事，
+        # 必须区分，否则长时间批量下载被限流时会被误判成几百只「退市股」。
+        raise RuntimeError(f"{symbol} baostock 错误 code={rs.error_code} msg={rs.error_msg}")
 
     if not rows:
         if cache_path.exists():
