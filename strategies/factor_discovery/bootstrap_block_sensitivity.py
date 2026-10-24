@@ -23,6 +23,7 @@ warnings.filterwarnings("ignore")
 from data.fetcher import load_daily, cache_summary
 from data.universe import get_listing_info
 from signals.alpha191.factors import factor_141, factor_001
+from signals.alpha191.calculator import compute_panel_factor
 
 N_STOCKS = 300
 DATE_START, DATE_END = "2010-01-01", "2025-12-31"
@@ -37,7 +38,7 @@ symbols = live_symbols[:N_STOCKS]
 
 all_dfs = {}
 for sym in symbols:
-    df = load_daily(sym)
+    df = load_daily(sym, adjust="1")  # 后复权
     if df is None or len(df) < 100:
         continue
     df = df.loc[(df.index >= DATE_START) & (df.index <= DATE_END)]
@@ -51,16 +52,8 @@ print(f"股票数: {len(all_dfs)}  交易日: {len(close_matrix)}")
 
 
 def compute_factor_matrix_custom(fn):
-    rows = {}
-    for sym, df in all_dfs.items():
-        try:
-            result = fn(df)
-            if not isinstance(result, pd.Series):
-                result = pd.Series(result, index=df.index)
-            rows[sym] = result
-        except Exception:
-            rows[sym] = pd.Series(np.nan, index=df.index)
-    return pd.DataFrame(rows).sort_index()
+    """面板模式：RANK = 截面排名。"""
+    return compute_panel_factor(all_dfs, fn)
 
 
 def align(factor_df):

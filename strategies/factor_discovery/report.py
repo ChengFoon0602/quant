@@ -22,6 +22,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 from data.fetcher import load_daily, cache_summary
 from data.universe import build_dynamic_universe, get_listing_info
 from signals.alpha191.factors import factor_055, factor_141, factor_001
+from signals.alpha191.calculator import compute_panel_factor
 from backtest.cross_section import run_cross_section
 
 REPORT_DIR = "figures"
@@ -59,7 +60,7 @@ symbols = live_symbols[:N_STOCKS]
 
 all_dfs = {}
 for sym in symbols:
-    df = load_daily(sym)
+    df = load_daily(sym, adjust="1")  # 后复权
     if df is None or len(df) < 100:
         continue
     df = df.loc[(df.index >= DATE_START) & (df.index <= DATE_END)]
@@ -103,17 +104,8 @@ print(f"Universe: 全部 {N_VALID} 只（非退市，不含 PIT 动态过滤）"
 
 # ── 工具函数 ─────────────────────────────────────────────
 def compute_factor_matrix_custom(fn, **kwargs):
-    """从预加载数据计算因子矩阵。"""
-    rows = {}
-    for sym, df in all_dfs.items():
-        try:
-            result = fn(df, **kwargs) if kwargs else fn(df)
-            if not isinstance(result, pd.Series):
-                result = pd.Series(result, index=df.index)
-            rows[sym] = result
-        except Exception:
-            rows[sym] = pd.Series(np.nan, index=df.index)
-    return pd.DataFrame(rows).sort_index()
+    """从预加载数据计算因子矩阵（面板模式，RANK = 截面排名）。"""
+    return compute_panel_factor(all_dfs, fn, **kwargs)
 
 
 def align(factor_df):
