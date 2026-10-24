@@ -69,7 +69,7 @@ def get_cv_best_iterations(model_dir: Path = MODEL_DIR) -> list[int]:
         path = model_dir / f"lgbm_fold_{i}.txt"
         if not path.exists():
             raise FileNotFoundError(f"找不到 fold 模型: {path}。请先运行 lgbm_trainer.py")
-        model = lgb.Booster(model_file=str(path))
+        model = lgb.Booster(model_str=path.read_text(encoding="utf-8"))
         n_trees = model.num_trees()
         iters.append(n_trees)
         print(f"  fold {i}: num_trees = {n_trees}")
@@ -117,7 +117,8 @@ def main():
     )
 
     final_path = MODEL_DIR / "lgbm_final_model.txt"
-    final_model.save_model(str(final_path))
+    # 同上：规避 LightGBM C++ 层对非 ASCII 路径的限制
+    final_path.write_text(final_model.model_to_string(), encoding="utf-8")
     print(f"\n最终模型保存: {final_path}")
 
     # ── 特征重要性 ──

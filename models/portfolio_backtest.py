@@ -536,7 +536,8 @@ def main():
         # 特征列表从 X_matrix 动态推断（与 lgbm_trainer 的列序一致：alpha 在前，市场特征在后）
         all_features = [c for c in X_long.columns if c not in MARKET_COLS] + MARKET_COLS
         ALL_FEATURES[:] = all_features  # 供 _permute_column 等模块级引用
-        model = lgb.Booster(model_file=str(model_path))
+        # 非 ASCII 路径：LightGBM C++ 层打不开，改用字符串载入
+        model = lgb.Booster(model_str=model_path.read_text(encoding="utf-8"))
         valid = aligned.dropna(subset=["label"])
         market_vol_long = X_long["market_vol_20d"]
         imp_dict, base_auc = conditional_permutation_importance(

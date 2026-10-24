@@ -1,5 +1,18 @@
 # LightGBM 非线性多因子合成
 
+> **✅ 已按新口径重算（2026-10-24）**
+>
+> 本报告曾因 `signals/alpha191/` 的两处口径缺陷整体作废（前复权价含前视信息；
+> `vwap = amount/volume` 与复权 close 量纲不一致，实测 vwap/close 中位 1.31）。
+> 现已修复并**全链重跑**：数据 783 只 PIT / 提纯 29 通过 / 池 15 因子 / X_matrix 1,148,605×17。
+>
+> **最新数字集中在「方法论修正 V」（因子口径）与「方法论修正 VI」（算子实现 bug）两个章节**。
+> 正文其余章节的数字为修复前口径，保留用于记录研究演化，不要引用。
+> **当前唯一可引用的样本外数字：去 bias LS 年化 4.93%、夏普 0.524、最大回撤 −22.51%。**
+> 证据：`docs/alpha191_复现审计_2026-10-24.md` ｜ 执行记录：`docs/alpha191_修复执行_2026-10-24.md`
+> 冻结版本：`git tag pre-alpha191-fix-20261024`
+
+
 > **核心结论（2026-08-12 最终更新）**：在**真实 PIT 沪深 300 universe** 上，Alpha 191 价量因子库的多空策略**不成立**（LS 夏普 0.036）。搬到 **PIT 中证 500** 后信号看似翻倍（LS 1.618、WF 1.438），但经 **selection bias 消除**（因子池也进 Walk-Forward 年度重选）后，真实 WF 夏普从 1.438 降至 **0.295**（−79%），OOF IC 从 0.095 降至 **0.062**（−35%）。进一步 regime 拆分：**2015-2016 贡献几乎全部超额**（合并 SR 2.91），2017-2025 泡沫后合并 SR = **−0.15**，2021-2025 后半段 SR = **−0.27**。**信号真实存在（IC_IR 0.458）但经济价值高度 regime 依赖，多空策略在正常市不成立。** P1 又否决了"多头指数增强"这条残余价值路线——去 bias 后 LO 夏普从 1.906 暴跌到 **0.25**（约 87% 是选择偏差）、相对指数超额 ≈ 0（IR −0.01），叠加行业/市值中性化后 IR 转负（**−0.56**），容量上限 < 0.5 亿。P2 又否决了最后一条"2018 式熊市做空端"——regime 过滤（指数<MA200）+ 纯空头腿把永续空头年化 −3.5% 收敛到 **+0.2%**（SR −0.11→+0.01），但叠加真实融券成本（8%/10%）后 SR 转负至 **−0.18/−0.23**，剔除 2018 后（borrow 8%）年化 −6.7%，Block bootstrap 全部不显著（p>0.23）。**量价 × 中证 500 三方向（多空/多头增强/做空端）全部检验完毕，研究弧线收敛：无任一方向在扣除真实成本后成立。** 演化全程：方法论修正 I/II → 全库重筛 → 路线② → selection bias 修正 III → P1 多头增强否定 → **P2 做空端否定**。见「修正 III」章节与 `strategies/zz500_pit_trial/report.md`。
 
 > ⚠️ **本核心结论已被「重要更正 IV（2026-09-05）」部分推翻**：上述「多空不成立」「三方向全部否定」的关键数字，是在**交易成本 bug**（代码 0.3% vs 铁律 0.1%）下算出的。成本收口到 0.1% 后，多空 alpha 显著成立（沪深 300 LS 1.175、中证 500 去 bias LS +1.214）；「多头增强」转为「超额 IR +1.11 显著但容量 <0.5 亿」的中间态；「做空端」仍否定（融券成本 8-10% 主导，已重跑确认）。**保留本段以记录研究演化轨迹，正确结论见下方「重要更正 IV」与「方法论修正 IV」章节。**
@@ -351,6 +364,8 @@ CLAUDE.md 铁律第 3 条明文规定：双边成本 ≈ 0.1%（买入 0.026% �
 | II | 幸存者偏差 universe | 夏普虚高 |
 | III | selection bias | 夏普虚高（−79%） |
 | **IV** | **成本口径 3 倍** | **夏普虚低（多空尤其）** |
+| **V** | **因子口径（前复权 + VWAP 量纲）** | **夏普虚低（前视是噪声不是 alpha）** |
+| **VI** | **算子实现 bug（REGBETA ddof / SMA 初值）** | 小幅虚低（WF +11%） |
 
 前三次修正都是「虚高 → 回归真实」，第四次是**唯一一个「虚低 → 回归真实」的修正**——
 它不推翻前三次的正确性，而是揭示：在「高估」和「低估」两个方向上，方法论铁律都必须在
@@ -358,7 +373,145 @@ CLAUDE.md 铁律第 3 条明文规定：双边成本 ≈ 0.1%（买入 0.026% �
 
 ---
 
+## 方法论修正 V：Alpha191 因子口径（2026-10-24）
+
+### 触发
+
+对 `signals/alpha191/` 做复现审计，发现两处口径缺陷：
+
+1. **前复权计算**。`compute_factor_matrix` 调 `load_daily(sym)` 未指定 `adjust`，默认 `"2"` 前复权。
+   前复权因子由**未来**除权事件回溯决定 → 2015 年的因子值在 2015 年当时不可得，属前视。
+2. **VWAP 量纲错配**。`vwap = amount / volume` 是**未复权**成交均价，而 `close` 是复权价。
+   实测 000001：`vwap/close` 中位 **1.31**、范围 1.02~4.01，vwap 甚至高于当日最高价。
+   后果：15 个 `MIN/MAX(VWAP-LOW/HIGH, 0)` 类因子退化为常数，9 个全 NaN。
+
+另有两处转写 bug：alpha043–046 写成 `LOG(DELTA(VOLUME))`（研报是 `DELTA(LOG(VOLUME))`，
+volume 差分 47% 为负 → 取对数全 NaN，alpha046 只剩 5 天有效）；alpha010 把窗口参数 5
+当成逐元素下界（`np.maximum(val,5)` 应为 `MAX(val,5)`）。
+
+### 修复
+
+- 因子计算改后复权 `adjust="1"`；回测 close 仍用前复权（收益率不变）
+- `vwap_adj1 = (amount/volume) × (close_adj1/close_adj3)`，实测 `vwap/close` 中位回到 0.9999
+- 修正 043–046 与 010；12 个数学退化因子（`MIN(HIGH-LOW,0)≡0` 等）标 `DEGENERATE_FACTORS`，不强行"修"
+- 全量重跑：783 只 PIT（790 中 7 只退市股无数据）→ 提纯 29 通过 → 最终池 15 因子
+
+### 三方隔离：口径 vs 池换血
+
+修复同时改变了「因子口径」和「因子池」，两个变量混在一起无法归因。
+因此额外跑了一组对照：**用旧池（`ALPHA_FIDS_MOD2`，16 因子）+ 新口径**重建 X_matrix
+（`models/oldpool_newcaliber/` 归档）。
+
+| 配置 | CV AUC | OOF IC | IC_IR | WF 年化 | WF 夏普 | LS 年化 | LS 夏普 | LO 夏普 |
+|---|---|---|---|---|---|---|---|---|
+| **A** 旧池 · 旧口径（修复前） | 0.5347 | 0.0574 | 0.312 | 5.96% | 0.434 | 1.28% | 0.083 | 1.141 |
+| **B** 旧池 · 新口径 | 0.5319 | 0.0513 | 0.274 | 18.25% | **1.285** | 17.70% | **1.102** | 1.424 |
+| **C** 新池 · 新口径（算子修复前） | 0.5301 | 0.0477 | 0.254 | 20.07% | 1.427 | 17.47% | 1.097 | 1.406 |
+| **D** 新池 · 新口径 · 算子修复（**canonical**） | 0.5302 | 0.0469 | 0.250 | 22.32% | **1.582** | 16.33% | **1.025** | 1.401 |
+| **D′** D · PIT-Select（去 selection bias） | — | — | — | **4.93%** | **0.524** | — | — | — |
+
+- **A → B（口径修复）**：WF 0.434 → 1.285，+196%
+- **B → C（池换血）**：WF 1.285 → 1.427，+11%
+- **C → D（算子层两个 bug 修复）**：WF 1.427 → 1.582，+11%
+- **D → D′（去 selection bias）**：WF 1.582 → 0.524，**−67%**
+
+**改善主要来自口径修复；池换血与算子修复各贡献约 +11%；selection bias 仍吃掉 −67%。**
+这一点必须留在报告里——否则读者会误以为"换了因子池所以变好了"。
+`C′`（4.84% / 0.510）是算子修复**前**跑的去偏值，已废弃，**以 D′ 为准**。
+
+### 为什么去掉前视反而变好
+
+直觉上砍掉前视信息绩效该变差，实际却是大涨。可辩护的解释：
+**前复权带来的不是 alpha 而是噪声。** 复权因子对各股票不同，`vwap-close`、`DELTA(close)`
+这类价格水平量因此混入了「该股累计分红送股幅度」这一与未来收益无关的分量，
+它在截面排名里稀释了真实信号。去掉它，信号纯度上升。
+前视 ≠ 有信息：未来分红与未来 5 日收益无关，它只是污染。
+
+### 最终可引用数字
+
+**唯一可引用的是 D′：去 bias 的 LS 组合，年化 4.93%、夏普 0.524、最大回撤 −22.51%。**
+
+固定池的 1.582 / 1.025 都含 selection bias，**不可引用**。
+
+逐年（PIT-Select，2015–2025 夏普）：2016 +1.70、2024 +1.66、2018 +1.36、2015 +0.97 强；
+2020 +0.42、2021 +0.45、2022 +0.32 中等；2019 −0.16、2023 +0.00、2025 −0.85 弱。
+与中证 500 不同，没有单一年份主导——不是靠一次 regime 撑起来的。
+但 2025 单年 −0.85 且贡献了全部 −22.5% 的最大回撤，是最脆弱的一年。
+
+### 结论修订
+
+| | 旧结论 | 修订后 |
+|---|---|---|
+| 沪深 300 多空策略 | **不成立**（LS 0.036） | **弱正但不达可交易标准**（去 bias LS 0.524、年化 4.93%） |
+| 因子库上限 | IC ≈ 0.05 是天花板 | 仍成立，OOF IC 0.0477 |
+| 因子池 | 16 因子（含 4 个 VWAP 污染） | 15 因子，剔掉 110/075/166/171 等污染重的 |
+
+**关键对比**：修复后**去 bias** 的 0.524，仍高于修复前**含 bias** 的 0.434。
+即使给修复后打最狠的折扣，也超过修复前不打折扣的数字。
+
+### 四条保留意见
+
+1. **样本集不完全相同**。旧口径基线用的是 1,025,288 行的 X_matrix，新口径是 1,148,569 行
+   （783 只，日期覆盖更全）。A/B/C 三组之间除了口径与池，样本集也略有差异，未完全隔离。
+2. **alpha001 对照组也动了**。它的因子值几乎不变（Rank IC 序列 Spearman > 0.999），
+   但 LS 从 −2.187 变 +0.009。说明回测链路里 universe 与样本对齐也变了，不是纯因子效应。
+3. **IC 降、回测升**。OOF IC 0.0574 → 0.0477，WF 却从 0.434 → 1.285。方向不一致，
+   目前只有定性解释（上节），没有定量证据。
+4. **12 个退化因子未修**。`MIN(HIGH-LOW,0)≡0`、日内均价必落在 `[LOW,HIGH]` 内导致的
+   正负部截断恒 0，属国泰君安原文公式缺陷。保留编号、由 purify 跳过，不是实现问题。
+
+### 复现
+
+```bash
+.venv/Scripts/python.exe data/download_adjust_cache.py --index hs300   # 补齐 adj1/adj3
+.venv/Scripts/python.exe strategies/feature_selection/purify_v2.py     # 全库提纯
+.venv/Scripts/python.exe strategies/feature_selection/select_features.py  # 最终池 + X_matrix
+.venv/Scripts/python.exe models/lgbm_trainer.py
+.venv/Scripts/python.exe models/walk_forward.py
+.venv/Scripts/python.exe models/walk_forward_pit_select.py             # 去 selection bias
+.venv/Scripts/python.exe models/portfolio_backtest.py
+```
+
+---
+
+## 方法论修正 VI：算子层两个实现 bug（2026-10-24）
+
+修正 V 解决的是「用什么数据算」，修正 VI 解决的是「算子本身算得对不对」。
+修完 V 之后做算子层双实现互证（纯 numpy 另写一套，与 pandas 实现逐位比），**抓到两个真 bug**：
+
+**① `REGBETA` 自由度不一致（严重）**
+
+```python
+cov = y.rolling(n).cov(x)        # pandas 默认 ddof=1 → 样本协方差
+var = x.rolling(n).var(ddof=0)   # 总体方差
+return cov / var                 # β 被系统性放大 (n−1)/n 倍
+```
+
+分子分母自由度不同，n=5 时 β **偏大 20%**。影响 alpha142–149 共 8 个因子，
+其中 **142 在最终池内**。修复：`cov(x, ddof=0)`。
+
+**② `SMA` 初值路径与研报不等价（中等）**
+
+原实现用 `ewm(alpha=m/n, adjust=False)` 填充 `t≥n`，只在 `t=n−1` 处覆盖为前 n 日均值。
+但 ewm 递归从 `x[0]` 起步——在 `n−1` 打补丁之后仍走 ewm 自己的历史路径，
+与研报「均值初值 → 纯递归」不等价（实测偏差 0.13%~0.46%）。
+影响 alpha009、076–093（其中 **087 是最终池里 IC_IR 最高的因子**）、173、174。
+修复：显式递归，初值取前 n 日均值，NaN 处沿用上一值。
+
+**影响**：提纯通过数 29 → **30**（新增 alpha149），但**最终池成分未变**（仍是那 15 个），
+但数值变了 → 全链重跑。固定池 WF 1.427 → **1.582**、LS 1.097 → **1.025**；
+去偏后 0.510 → **0.524**（去偏路径对算子精度不敏感，符合预期——
+**selection bias 才是主导项，算子精度是二阶项**）。
+
+**验证**：`tests/verify_operators_independent.py` 85/85 逐位一致（TOL 1e-9，含 NaN 位置）；
+golden 基线 191/191 无回归；健康度测试 4 passed。详见 `tests/alpha191_validation_report.md`。
+
+---
+
 ## 数据与特征
+
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
 
 | 维度 | 值 |
 |------|-----|
@@ -397,6 +550,9 @@ CLAUDE.md 铁律第 3 条明文规定：双边成本 ≈ 0.1%（买入 0.026% �
 ---
 
 ## 训练结果
+
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
 
 > 本节数字为 PIT universe + 重筛新池（2026-07-27）。冻结旧池对照见「方法论修正 II」与「全库重筛」。
 
@@ -442,6 +598,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 
 ## 特征重要性
 
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
+
 按 LightGBM `gain` 排序（PIT + 重筛新池）：
 
 | 排名 | 特征 | mean gain | std |
@@ -472,6 +631,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 
 ## 与线性基线的对比
 
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
+
 使用重筛后的 15 个 alpha 因子、相同的 5 日截面分类标签、相同的 Purged CV 和评估框架，对比两种线性合成与 LightGBM 的非线性合成（PIT universe，多空列为 hold=1 日频再平衡扣成本）：
 
 | 方法 | Rank IC | IC_IR | IC t | 多空年化 | 多空夏普 | 最大回撤 |
@@ -493,6 +655,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 ---
 
 ## 组合回测：从预测到交易
+
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
 
 ### 回测设置
 
@@ -537,6 +702,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 
 ## 条件 Alpha 归因
 
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
+
 ### 方法
 
 按 `market_vol_20d` 把样本分为高波动（Q2）和低波动（Q1）两个区间，在每个区间内计算**条件 Permutation Importance**：随机打乱单个特征后 AUC 的下降幅度。
@@ -570,6 +738,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 ---
 
 ## 因子归因：剥离市场 Beta
+
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
 
 > ⚠️ **本节数字基于修正 II 前的事故 universe，未在 PIT universe 上重跑**（组合级 alpha 已不存在，CAPM 分解无研究价值），保留仅作方法演示。其市场因子构造还残留 `rolling(5)` 平滑（`factor_attribution.py`），迁移时一并清除。
 
@@ -608,6 +779,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 ---
 
 ## 最终全量模型
+
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
 
 > ⚠️ **本节基于修正 II 前的事故 universe，未在 PIT universe 上重训**——组合级 alpha 消失后，"生产模型"暂无部署意义。若未来在多头增强方向重启，需用 PIT X_matrix 重训并重估迭代数。
 
@@ -659,6 +833,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 
 ## 调仓频率优化
 
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
+
 ### 实验设计
 
 增加持有期降低换手成本，但也让持仓中掺入更多陈旧信号。测试 hold_days = 5 / 8 / 10 / 15 / 20（权重追踪法，PIT + 重筛新池）。
@@ -687,6 +864,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 
 ## 动态仓位策略
 
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
+
 ### 逻辑
 
 条件归因显示模型在高/低波动区间依赖不同的因子。按 `market_vol_20d` 在历史数据上的分位数动态调整仓位：波动率高于中位数（0.0206）时降仓，不加杠杆。
@@ -709,6 +889,9 @@ IC 0.05 的信号毛利撑不起日频全换手的交易成本，**统计显著 
 ---
 
 ## 滚动回测（Walk-Forward）：真正样本外检验
+
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
 
 ### 设计
 
@@ -758,6 +941,9 @@ Purged CV 的 OOF 预测是在一个"防泄露"的交叉验证框架下生成的
 ---
 
 ## 深度学习对照：MLP vs LightGBM
+
+> 📌 **本节数字为修复前口径（2026-10-24 前）**。最新数字见「方法论修正 V」。
+
 
 > ⚠️ **本节数字基于修正 II 前的事故 universe，未在 PIT universe 上重跑**。核心结论（树模型归纳偏置在此任务上优于基础 MLP）是相对比较，预计跨 universe 成立，但表中绝对数字已作废。
 
@@ -833,39 +1019,47 @@ Purged CV 的 OOF 预测是在一个"防泄露"的交叉验证框架下生成的
 
 ```bash
 cd D:/桌面文件/quant
+PY=.venv/Scripts/python.exe      # 项目 venv：numpy 2.1.3 / pandas 2.3.3 / lightgbm 4.7.0
 
-# 0. PIT 基础设施（一次性；成员矩阵已缓存在 data/cache_meta/）
-python -c "from data.index_membership import load_membership; print(load_membership().shape)"
+# 0a. PIT 基础设施（一次性；成员矩阵已缓存在 data/cache_meta/）
+$PY -c "from data.index_membership import load_membership; print(load_membership().shape)"
+
+# 0b. 复权缓存（2026-10-24 新增，因子计算的后复权口径依赖它）
+#     约 20 分钟；断点续传，已下的自动跳过
+$PY data/download_adjust_cache.py --index hs300
 
 # 1a. 全库重筛（191 因子 × 790 只，约 1 小时）→ purify_results.csv
-python strategies/feature_selection/purify_v2.py
+$PY strategies/feature_selection/purify_v2.py
 
 # 1b. 冗余剔除 + 生成 X_matrix（重筛新池，当前 canonical）
-python strategies/feature_selection/select_features.py
+$PY strategies/feature_selection/select_features.py
 
 # 1c. （备选）复现「方法论修正 II」冻结旧池的 X_matrix
-python strategies/feature_selection/build_pit_matrix.py
+$PY strategies/feature_selection/build_pit_matrix.py
 
 # 2. 训练 LightGBM
-python models/lgbm_trainer.py
+$PY models/lgbm_trainer.py
 
 # 3. 线性基线对比
-python models/linear_baseline.py
+$PY models/linear_baseline.py
 
 # 4. 组合回测 + 条件 Alpha 归因
-python models/portfolio_backtest.py
+$PY models/portfolio_backtest.py
 
 # 5. 调仓频率 + 动态仓位优化
-python models/execution_optimization.py
+$PY models/execution_optimization.py
 
-# 6. 滚动回测
-python models/walk_forward.py
+# 6. 滚动回测（固定池，含 selection bias）
+$PY models/walk_forward.py
+
+# 6b. 滚动回测（年度重选池，消除 selection bias —— 修正 V 的唯一可引用口径）
+$PY models/walk_forward_pit_select.py
 
 # 7. 新旧 universe 对比图（需 *_pre_pit.csv 备份在位）
-python models/pit_universe_comparison.py
+$PY models/pit_universe_comparison.py
 
 # 8. 方法论修正 I 诊断（错误法 vs 正确法）
-python models/methodology_correction.py
+$PY models/methodology_correction.py
 
 # （未迁移 PIT，跑出的是旧方法演示：factor_attribution / train_final_model / nn_trainer）
 ```

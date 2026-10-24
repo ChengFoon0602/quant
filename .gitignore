@@ -81,6 +81,9 @@ models/oof_predictions_newpool.csv
 models/oof_predictions_pit_select.csv
 models/wf_pit_ic_panel.csv
 models/wf_pit_fm_panel.csv
+# 同上：旧池+新口径隔离组（B 配置）的重跑生成物，副本已归档在 models/oldpool_newcaliber/
+models/*_newpool.csv
+models/*_newpool.json
 models/*/oof_predictions.csv
 
 # 线性基线生成物 (通过 linear_baseline.py 重新生成)

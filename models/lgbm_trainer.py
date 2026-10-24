@@ -145,7 +145,9 @@ def _train_one_fold(
 
     best_auc = model.best_score["val"]["auc"]
     model_path = MODEL_DIR / f"lgbm_fold_{fold_idx}.txt"
-    model.save_model(str(model_path))
+    # LightGBM 的 C++ 层写不了非 ASCII 路径（Windows + 中文目录），
+    # 故用 Python 侧写文件；模型内容与 save_model 完全一致。
+    model_path.write_text(model.model_to_string(), encoding="utf-8")
     print(f"    best val AUC={best_auc:.4f}  model saved: {model_path}")
     return model, best_auc
 
