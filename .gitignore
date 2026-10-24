@@ -148,3 +148,6 @@ Interview_Project_Story_CN_EN.pdf
 
 # 竞赛材料（个人参赛资料：策略说明、协作清单等，仅本机使用，不入版本库）
 竞赛材料/
+
+# 下载失败清单的过程快照（run1/run2 为重试轮次，完整记录已在 data/*.log）
+data/download_failures_*_run*.txt

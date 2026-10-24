@@ -1,0 +1,7 @@
+000423	RuntimeError: 000423 返回空数据，可能停牌或退市
+000425	RuntimeError: 000425 返回空数据，可能停牌或退市
+002459	RuntimeError: 002459 adj1 返回空数据
+600660	RuntimeError: 600660 adj1 返回空数据
+600837	RuntimeError: 600837 返回空数据，可能停牌或退市
+600839	RuntimeError: 600839 返回空数据，可能停牌或退市
+601929	RuntimeError: 601929 adj1 返回空数据

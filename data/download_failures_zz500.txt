@@ -1,0 +1,3 @@
+000022	RuntimeError: 000022 adj1 合成后 OHLC 关系异常
+300114	RuntimeError: 300114 adj1 合成后 OHLC 关系异常
+600607	adj3 数据不足
