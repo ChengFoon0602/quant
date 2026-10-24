@@ -194,6 +194,11 @@ def main():
             final_pool.append(mk)
 
     print(f"\n最终因子池 ({len(final_pool)} 个):")
+    passed = set(purify_df[purify_df["pass"]]["factor"])
+    forced = [mk for mk in MUST_KEEP if mk not in passed and mk in final_pool]
+    if forced:
+        print(f"  ⚠ 硬保留但未通过三维提纯: {forced} —— 这是研究设计选择（避险/基准），"
+              f"不代表统计显著，报告里必须标注")
     for i, fid in enumerate(final_pool):
         info = purify_df[purify_df["factor"] == fid]
         if len(info):
