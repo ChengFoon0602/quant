@@ -71,12 +71,30 @@ MIN = _MIN
 
 
 def _tsrank_1d(col: pd.Series, n: int) -> pd.Series:
-    """单列时间序列排名: 当前值在过去 n 日的百分位排名 (升序, 0~1)"""
-    def _rank_last(x):
-        last = x[-1]
-        return np.searchsorted(np.sort(x), last, side='right') / len(x)
+    """单列时间序列排名: 当前值在过去 n 日的百分位排名 (升序, 0~1)。
 
-    return col.rolling(n).apply(_rank_last, raw=True)
+    语义等价于原 `rolling(n).apply(searchsorted(sorted(x), x[-1], side='right')/n)`，
+    即窗口内 `(x <= x[-1]).sum() / n`。
+
+    2026-10-24 改为向量化：原实现是 Python 逐窗口回调，783 列 × 3886 行时
+    单因子需 30–60 秒，全库重筛要 1–2 小时。滑动窗口视图把这一步压到秒级，
+    数值逐位一致（窗口含 NaN 时同样输出 NaN，由 min_periods=window 保证）。
+    """
+    arr = col.to_numpy(dtype=float)
+    total = len(arr)
+    out = np.full(total, np.nan)
+    if total < n:
+        return pd.Series(out, index=col.index)
+
+    win = np.lib.stride_tricks.sliding_window_view(arr, n)   # (T-n+1, n)
+    valid = ~np.isnan(win).any(axis=1)
+    if valid.any():
+        sub = win[valid]                                     # (k, n)
+        pct = np.full(total - n + 1, np.nan)
+        pct[valid] = (sub <= sub[:, -1:]).sum(axis=1) / n
+        out[n - 1:] = pct
+    return pd.Series(out, index=col.index)
+
 
 
 def TSRANK(series, n):
@@ -97,16 +115,48 @@ def CORR(a, b, n):
 
 
 def _sma_1d(col: pd.Series, n: int, m: int) -> pd.Series:
-    """单列递归移动平均 (SMA)."""
+    """单列递归移动平均 (SMA)。
+
+    SMA_t = (m·A_t + (n−m)·SMA_{t−1}) / n，**初值 = 前 n 日简单均值**。
+
+    2026-10-24 修正：原实现用 `ewm(alpha=m/n, adjust=False)` 的值填充 t≥n，
+    而 ewm 的递归是从 x[0] 起步的——等于在 t=n−1 处打了个补丁，之后仍沿用
+    ewm 自己的历史路径，与「均值初值纯递归」不等价（实测偏差 0.13%~0.46%）。
+    双实现互证发现。受影响因子：009、076–093、087（最终池）、173、174。
+    """
+    a = col.to_numpy(dtype=float)
+    total = len(a)
+    out = np.full(total, np.nan)
+    if total < n:
+        return pd.Series(out, index=col.index)
+
     alpha = m / n
-    result = pd.Series(np.nan, index=col.index)
-    if len(col) < n:
-        return result
-    result.iloc[n - 1] = col.iloc[:n].mean()
-    # ignore_na=True 跳过 NaN，仅在全是 NaN 时返回 NaN
-    ewm = col.ewm(alpha=alpha, adjust=False, ignore_na=True).mean()
-    result.iloc[n:] = ewm.iloc[n:]
-    return result
+    head = a[:n]
+    if np.isnan(head).any():
+        # 首个窗口不完整：从第一个满窗开始
+        start = None
+        for i in range(n - 1, total):
+            w = a[i - n + 1: i + 1]
+            if not np.isnan(w).any():
+                out[i] = w.mean()
+                start = i + 1
+                break
+        if start is None:
+            return pd.Series(out, index=col.index)
+        prev = out[start - 1]
+    else:
+        prev = head.mean()
+        out[n - 1] = prev
+        start = n
+
+    for i in range(start, total):
+        cur = a[i]
+        if np.isnan(cur):
+            out[i] = prev          # 与 ewm(ignore_na=True) 语义一致：跳过不更新
+            continue
+        prev = (1.0 - alpha) * prev + alpha * cur
+        out[i] = prev
+    return pd.Series(out, index=col.index)
 
 
 def SMA(series, n, m):
@@ -127,10 +177,16 @@ def SMA(series, n, m):
 
 
 def REGBETA(y, x, n):
-    """过去 n 日 y 对 x 的线性回归系数 β = Cov(y,x) / Var(x)"""
+    """过去 n 日 y 对 x 的线性回归系数 β = Cov(y,x) / Var(x)。
+
+    2026-10-24 修正：原实现 `cov = y.rolling(n).cov(x)`（默认 ddof=1）配
+    `var = x.rolling(n).var(ddof=0)`，分子分母自由度不一致 → β 系统性放大
+    (n-1)/n 倍（n=5 时 +25%，实测相对误差 0.200）。双实现互证发现。
+    影响 alpha142/143/144/145/146/147/148/149 八个因子。
+    """
     y = _ensure_series(y)
     x = _ensure_series(x)
-    cov = y.rolling(n).cov(x)
+    cov = y.rolling(n).cov(x, ddof=0)
     var = x.rolling(n).var(ddof=0)
     return cov / var
 

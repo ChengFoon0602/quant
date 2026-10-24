@@ -11,6 +11,8 @@ VWAP 自动从 amount/volume 计算（如果 amount 列存在）。
 """
 
 import inspect
+import re
+
 import numpy as np
 import pandas as pd
 
@@ -19,6 +21,32 @@ from .operators import (
     SUM, STD, MAX, MIN, DELTA, DELAY, RANK, TSRANK, CORR,
     SMA, REGBETA, REGRESI, COUNT, ABS, LOG, SIGN
 )
+
+
+# 公式在数学上退化的因子（不是实现 bug，不要「修」）。
+#
+# 两类：
+#   (a) MIN((HIGH-LOW), 0)：HIGH >= LOW 恒成立 → 逐元素语义下恒为 0。
+#       alpha097/109/121/133
+#   (b) 正负部截断撞上必然排序：日内均价 VWAP 数学上必落在 [LOW, HIGH] 区间内，
+#       故 MIN(VWAP-LOW, 0) ≡ 0（alpha105/117/129/141）、
+#           MIN(HIGH-VWAP, 0) ≡ 0（alpha103/115/127/139）。
+#       这类因子实测偶有非零值，来自 vwap 越界的脏数据（停牌/集合竞价量），
+#       不构成信号。
+#
+# 处理：保留函数以维持编号完整，由 purify 跳过，不进因子池。
+# 依据：docs/alpha191_公式语义表.csv
+DEGENERATE_FACTORS = frozenset({
+    # (a) HIGH-LOW 的负部
+    "alpha097", "alpha109", "alpha121", "alpha133",
+    # (b) VWAP-LOW 的负部
+    "alpha105", "alpha117", "alpha129", "alpha141",
+    # (b) HIGH-VWAP 的负部
+    "alpha103", "alpha115", "alpha127", "alpha139",
+})
+
+# 裸 RANK(（排除 TSRANK）—— 只有它需要截面宽表输入
+_BARE_RANK = re.compile(r"(?<!TS)RANK\s*\(")
 
 
 def _where(cond, x, y):
@@ -40,8 +68,13 @@ def _where(cond, x, y):
     return result
 
 
-def _factor_has_rank(factor_num: int) -> bool:
-    """扫描因子函数源码，判断是否使用了 RANK/TSRANK 或含 RANK 的工厂函数。"""
+def _needs_panel(factor_num: int) -> bool:
+    """判断因子是否需要面板（宽表 dict[str, DataFrame]）输入。
+
+    只有 `RANK()` 需要：它是截面排名，per-stock 调用会退化成单股票时序排名，
+    与研报语义不同（实测同一天 5 只股票的 panel 值与 per-stock 值完全不同）。
+    `TSRANK()` 是逐列时序排名，两种模式等价，走 per-stock 更快。
+    """
     fn_name = f"factor_{factor_num:03d}"
     fn = globals().get(fn_name)
     if fn is None:
@@ -51,7 +84,7 @@ def _factor_has_rank(factor_num: int) -> bool:
     except Exception:
         return False
 
-    if "RANK(" in src or "TSRANK(" in src or "RANK " in src:
+    if _BARE_RANK.search(src):
         return True
 
     rank_helpers = [
@@ -64,6 +97,10 @@ def _factor_has_rank(factor_num: int) -> bool:
             return True
 
     return False
+
+
+# 向后兼容别名（旧名不区分 RANK / TSRANK，语义偏宽）
+_factor_has_rank = _needs_panel
 
 
 def _clip(s):
@@ -189,12 +226,16 @@ def factor_009(df: pd.DataFrame) -> pd.Series:
 
 
 def factor_010(df: pd.DataFrame) -> pd.Series:
-    """(RANK(MAX(((RET<0)?STD(RET,20):CLOSE)^2),5))"""
+    """(RANK(MAX(((RET<0)?STD(RET,20):CLOSE)^2),5))
+
+    注意：研报原式把 STD(RET,20)（量级 1e-2）与 CLOSE（量级 1e1）平方后混在
+    一起，天然有量纲失衡，属原文瑕疵（qflag=1）。实现保留原式，只修正窗口。
+    """
     c = df["close"]
     ret = c.pct_change()
     val = _where(ret < 0, STD(ret, 20), c) ** 2
-    # RANK(MAX(val, 5)) — MAX with window 5
-    return RANK(np.maximum(val, 5))
+    # 2026-10-24 修正：原为 np.maximum(val, 5)，把窗口参数 5 当成逐元素下界。
+    return RANK(MAX(val, 5))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -350,19 +391,21 @@ def factor_042(df: pd.DataFrame) -> pd.Series:
 # ══════════════════════════════════════════════════════════════
 
 def factor_043(df: pd.DataFrame) -> pd.Series:
-    dlog_v = LOG(DELTA(df["volume"], 1))
+    # 2026-10-24 修正：原为 LOG(DELTA(VOLUME,1))，volume 差分有 47% 为负 →
+    # log(负数)=NaN，全序列几乎无有效值。研报原式是 DELTA(LOG(VOLUME),1)。
+    dlog_v = DELTA(LOG(df["volume"]), 1)
     return -CORR(RANK(dlog_v), RANK(DELTA(LOG(df["close"]), 1)), 6)
 
 def factor_044(df: pd.DataFrame) -> pd.Series:
-    dlog_v = LOG(DELTA(df["volume"], 1))
+    dlog_v = DELTA(LOG(df["volume"]), 1)
     return -CORR(RANK(dlog_v), RANK(DELTA(LOG(df["high"]), 1)), 6)
 
 def factor_045(df: pd.DataFrame) -> pd.Series:
-    dlog_v = LOG(DELTA(df["volume"], 1))
+    dlog_v = DELTA(LOG(df["volume"]), 1)
     return -CORR(RANK(dlog_v), RANK(DELTA(LOG(df["low"]), 1)), 6)
 
 def factor_046(df: pd.DataFrame) -> pd.Series:
-    dlog_v = LOG(DELTA(df["volume"], 1))
+    dlog_v = DELTA(LOG(df["volume"]), 1)
     vwap = _ensure_vwap(df)
     return -CORR(RANK(dlog_v), RANK(DELTA(LOG(vwap), 1)), 6)
 
@@ -543,6 +586,8 @@ def factor_096(df: pd.DataFrame) -> pd.Series:
     return RANK(np.maximum(df["high"] - df["low"], 0)) * -1
 
 def factor_097(df: pd.DataFrame) -> pd.Series:
+    # DEGENERATE: MIN(HIGH-LOW, 0) ≡ 0（HIGH>=LOW 恒成立）→ 输出恒 0。
+    # 保留以维持编号完整，不要用于因子池，不要"修"。
     return RANK(np.minimum(df["high"] - df["low"], 0)) * -1
 
 def factor_098(df: pd.DataFrame) -> pd.Series:
@@ -588,7 +633,7 @@ def _corr_vol_pair(df, val):
 def factor_106(df): return _corr_vol_pair(df, np.maximum(df["close"] - df["open"], 0))
 def factor_107(df): return _corr_vol_pair(df, np.minimum(df["close"] - df["open"], 0))
 def factor_108(df): return _corr_vol_pair(df, np.maximum(df["high"] - df["low"], 0))
-def factor_109(df): return _corr_vol_pair(df, np.minimum(df["high"] - df["low"], 0))
+def factor_109(df): return _corr_vol_pair(df, np.minimum(df["high"] - df["low"], 0))  # DEGENERATE: 恒 0 → NaN
 
 def factor_110(df):
     vwap = _ensure_vwap(df)
@@ -630,7 +675,7 @@ def factor_117(df):
 def factor_118(df): return RANK(DELTA(np.maximum(df["close"]-df["open"], 0), 1)) * -1
 def factor_119(df): return RANK(DELTA(np.minimum(df["close"]-df["open"], 0), 1)) * -1
 def factor_120(df): return RANK(DELTA(np.maximum(df["high"]-df["low"], 0), 1)) * -1
-def factor_121(df): return RANK(DELTA(np.minimum(df["high"]-df["low"], 0), 1)) * -1
+def factor_121(df): return RANK(DELTA(np.minimum(df["high"]-df["low"], 0), 1)) * -1  # DEGENERATE: 恒 0
 
 def factor_122(df):
     vwap = _ensure_vwap(df)
@@ -672,7 +717,7 @@ def factor_129(df):
 def factor_130(df): return -TSRANK(np.maximum(df["close"]-df["open"], 0), 5)
 def factor_131(df): return -TSRANK(np.minimum(df["close"]-df["open"], 0), 5)
 def factor_132(df): return -TSRANK(np.maximum(df["high"]-df["low"], 0), 5)
-def factor_133(df): return -TSRANK(np.minimum(df["high"]-df["low"], 0), 5)
+def factor_133(df): return -TSRANK(np.minimum(df["high"]-df["low"], 0), 5)  # DEGENERATE: 恒 0
 
 def factor_134(df):
     vwap = _ensure_vwap(df)

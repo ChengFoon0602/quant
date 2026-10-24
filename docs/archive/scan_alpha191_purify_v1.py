@@ -1,4 +1,21 @@
 """
+⚠⚠⚠ 已废弃（2026-10-24）——不要运行，不要引用其结论 ⚠⚠⚠
+
+本脚本用 `get_factor_func(fid)` + 逐股票 `fn(df)` 计算全库 191 因子。
+在这种调用方式下 `RANK()` 退化为**单股票时序排名**（`Series.rank(pct=True)`），
+而研报要求的是**同日跨股票的截面排名**（`DataFrame.rank(axis=1)`）。
+
+后果：191 个因子里有 177 个含 RANK，它们的 IC/IC_IR/FM 全部建立在错误语义上。
+实测同一天 5 只股票，panel 值与 per-stock 值完全不同（例 alpha018：
+[-0.04, -0.48, -0.24, -0.32, -1.00] vs [-0.22, -0.42, -0.70, -0.40, -0.56]）。
+
+替代：`strategies/feature_selection/purify_v2.py`（走 compute_factor_matrix 的
+panel 模式 + PIT 成员掩码 + 截面有效比过滤 + 后复权口径）。
+
+历史位置：strategies/scan_alpha191_purify.py
+归档原因见：docs/alpha191_复现审计_2026-10-24.md §3.4
+
+---
 scan_alpha191_purify.py — Alpha 191 全库提纯扫描。
 
 逐因子计算 IC_IR + Fama-MacBeth λ/t，按提纯管道筛选:

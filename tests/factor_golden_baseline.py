@@ -6,6 +6,15 @@ tests/factor_golden_baseline.py — Alpha191 因子 golden 基线对拍。
   做过一次性对拍，但没有保留 golden 输出基线。未来任何人改动 operators.py 或
   factors.py，都无法自动知道是否引入了数值回归。
 
+定位（务必读）：
+  本基线锁定的是「当前实现」的数值，用于**防回归**。
+  它**不能**证明实现与研报公式一致——公式一致性由 docs/alpha191_公式语义表.csv
+  和外部数据对拍负责。把错误实现锁进基线，基线只会忠诚地保护这个错误。
+
+版本：
+  v1（至 2026-10-24）：混合 per-stock / panel 两条路径，哈希维度不一致，不可比。
+  v2（2026-10-24 起）：统一面板模式。此前基线已作废。
+
 方案：
   用固定种子的合成 OHLCV 数据（不依赖真实缓存，保证跨环境可复现），
   计算全部 191 个因子，将结果哈希保存到 tests/golden/factor_hashes.json 作为基线。
@@ -81,7 +90,8 @@ def _hash_series(s: pd.Series | pd.DataFrame) -> str:
 
 def compute_all_factor_hashes() -> dict[str, str]:
     """计算全部 191 个因子的哈希。"""
-    from signals.alpha191.calculator import get_factor_func, _factor_has_rank
+    from signals.alpha191.calculator import get_factor_func
+    from signals.alpha191.factors import _needs_panel
 
     panel = build_synthetic_panel()
     hashes = {}
@@ -89,18 +99,11 @@ def compute_all_factor_hashes() -> dict[str, str]:
     for i in range(1, 192):
         fid = f"alpha{i:03d}"
         fn = get_factor_func(fid)
-        uses_rank = _factor_has_rank(i)
-
         try:
-            if uses_rank:
-                result = fn(panel)
-            else:
-                # 逐股票模式：用第一只股票
-                sym = list(panel["close"].columns)[0]
-                df = pd.DataFrame({f: panel[f][sym] for f in ["open", "high", "low", "close", "volume", "amount"]})
-                df["vwap"] = df["amount"] / df["volume"]
-                result = fn(df)
-            hashes[fid] = _hash_series(result)
+            # 统一走面板模式：per-stock 与 panel 对 TSRANK 数值等价，
+            # 但哈希维度不同（1 列 vs 10 列）。混合两种路径会让哈希不可比——
+            # 2026-10-24 修路由时就因此产生过 40 个假漂移。
+            hashes[fid] = _hash_series(fn(panel))
         except Exception:
             hashes[fid] = "ERROR"
 

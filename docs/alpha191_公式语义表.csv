@@ -1,0 +1,66 @@
+﻿factor_id,line,code,impl_semantics,risk,note
+factor_003,164,"""""""SUM(CLOSE==DELAY(CLOSE,1) ? 0 : CLOSE > DELAY(CLOSE,1) ? CLOSE - MIN(LOW,DELAY(CLOSE,1)) : CLOSE - MAX(HIGH,DELAY(CLOSE,1)), 6)""""""",formula_text,ok,研报原文（docstring，非实现）
+factor_003,169,"c - np.minimum(df[""low""], dc),",elementwise,ok,第二参数为序列或无法判定，按逐元素处理
+factor_003,170,"c - np.maximum(df[""high""], dc)))",elementwise,ok,第二参数为序列或无法判定，按逐元素处理
+factor_005,193,"""""""(-1 * TSRANK(MAX(DELTA(CLOSE,1),0),5))""""""",formula_text,ok,研报原文（docstring，非实现）
+factor_005,195,"return -TSRANK(np.maximum(dc1, 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_006,199,"""""""(-1 * TSRANK(MIN(DELTA(CLOSE,1),0),5))""""""",formula_text,ok,研报原文（docstring，非实现）
+factor_006,201,"return -TSRANK(np.minimum(dc1, 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_007,205,"""""""((RANK(MAX((VWAP-CLOSE),3))+RANK(MIN((VWAP-CLOSE),3)))*RANK(DELTA(VOLUME,3)))""""""",formula_text,ok,研报原文（docstring，非实现）
+factor_007,208,"return (RANK(MAX(vc, 3)) + RANK(MIN(vc, 3))) * RANK(DELTA(df[""volume""], 3))",rolling_window,ok,"外层窗口算子：n 日滚动最大/最小（研报 MAX(X,n) 的另一解读）"
+factor_010,229,"""""""(RANK(MAX(((RET<0)?STD(RET,20):CLOSE)^2),5))",formula_text,ok,研报原文（docstring，非实现）
+factor_010,238,"return RANK(MAX(val, 5))",rolling_window,ok,"外层窗口算子：n 日滚动最大/最小（研报 MAX(X,n) 的另一解读）"
+factor_019,293,"""""""RANK(MAX(ABS(DELTA(CLOSE,1)),ABS(DELTA(CLOSE,2))),5)*-1""""""",formula_text,ok,研报原文（docstring，非实现）
+factor_019,296,"return RANK(MAX(np.maximum(ad1, ad2), 5)) * -1",rolling_window,ok,"外层窗口算子：n 日滚动最大/最小（研报 MAX(X,n) 的另一解读）"
+factor_020,300,"""""""RANK(MIN(ABS(DELTA(CLOSE,1)),ABS(DELTA(CLOSE,2))),5)*-1""""""",formula_text,ok,研报原文（docstring，非实现）
+factor_020,303,"return RANK(MIN(np.minimum(ad1, ad2), 5)) * -1",rolling_window,ok,"外层窗口算子：n 日滚动最大/最小（研报 MAX(X,n) 的另一解读）"
+factor_033,359,"return RANK(np.maximum(DELTA(df[""volume""], 1), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_034,362,"return RANK(np.minimum(DELTA(df[""volume""], 1), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_035,365,"return RANK(np.maximum(DELTA(df[""volume""], 2), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_036,368,"return RANK(np.minimum(DELTA(df[""volume""], 2), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_037,371,"return RANK(np.maximum(DELTA(df[""volume""], 3), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_038,374,"return RANK(np.minimum(DELTA(df[""volume""], 3), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_039,377,"return RANK(np.maximum(DELTA(df[""volume""], 4), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_040,380,"return RANK(np.minimum(DELTA(df[""volume""], 4), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_041,383,"return RANK(np.maximum(DELTA(df[""volume""], 5), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_042,386,"return RANK(np.minimum(DELTA(df[""volume""], 5), 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_094,580,"return RANK(np.maximum(df[""close""] - df[""open""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_095,583,"return RANK(np.minimum(df[""close""] - df[""open""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_096,586,"return RANK(np.maximum(df[""high""] - df[""low""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_097,591,"return RANK(np.minimum(df[""high""] - df[""low""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_098,595,"return RANK(np.maximum(vwap - df[""open""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_099,599,"return RANK(np.minimum(vwap - df[""open""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_100,603,"return RANK(np.maximum(vwap - df[""close""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_101,607,"return RANK(np.minimum(vwap - df[""close""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_102,611,"return RANK(np.maximum(df[""high""] - vwap, 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_103,615,"return RANK(np.minimum(df[""high""] - vwap, 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_104,619,"return RANK(np.maximum(vwap - df[""low""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_105,623,"return RANK(np.minimum(vwap - df[""low""], 0)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_110,640,"return _corr_vol_pair(df, np.maximum(vwap - df[""open""], 0))",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_111,644,"return _corr_vol_pair(df, np.minimum(vwap - df[""open""], 0))",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_112,648,"return _corr_vol_pair(df, np.maximum(vwap - df[""close""], 0))",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_113,652,"return _corr_vol_pair(df, np.minimum(vwap - df[""close""], 0))",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_114,656,"return _corr_vol_pair(df, np.maximum(df[""high""] - vwap, 0))",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_115,660,"return _corr_vol_pair(df, np.minimum(df[""high""] - vwap, 0))",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_116,664,"return _corr_vol_pair(df, np.maximum(vwap - df[""low""], 0))",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_117,668,"return _corr_vol_pair(df, np.minimum(vwap - df[""low""], 0))",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_122,682,"return RANK(DELTA(np.maximum(vwap - df[""open""], 0), 1)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_123,686,"return RANK(DELTA(np.minimum(vwap - df[""open""], 0), 1)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_124,690,"return RANK(DELTA(np.maximum(vwap - df[""close""], 0), 1)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_125,694,"return RANK(DELTA(np.minimum(vwap - df[""close""], 0), 1)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_126,698,"return RANK(DELTA(np.maximum(df[""high""] - vwap, 0), 1)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_127,702,"return RANK(DELTA(np.minimum(df[""high""] - vwap, 0), 1)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_128,706,"return RANK(DELTA(np.maximum(vwap - df[""low""], 0), 1)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_129,710,"return RANK(DELTA(np.minimum(vwap - df[""low""], 0), 1)) * -1",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_134,724,"return -TSRANK(np.maximum(vwap - df[""open""], 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_135,728,"return -TSRANK(np.minimum(vwap - df[""open""], 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_136,732,"return -TSRANK(np.maximum(vwap - df[""close""], 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_137,736,"return -TSRANK(np.minimum(vwap - df[""close""], 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_138,740,"return -TSRANK(np.maximum(df[""high""] - vwap, 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_139,744,"return -TSRANK(np.minimum(df[""high""] - vwap, 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_140,748,"return -TSRANK(np.maximum(vwap - df[""low""], 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_141,752,"return -TSRANK(np.minimum(vwap - df[""low""], 0), 5)",elementwise_zero,ok,"正负部截断 max(x,0)/min(x,0)，原文语义明确"
+factor_172,885,"tr = np.fmax(np.fmax(a, b), c_lo)",elementwise,ok,第二参数为序列或无法判定，按逐元素处理
+factor_175,919,"tr = np.fmax(np.fmax(a, b), c_tr)",elementwise,ok,第二参数为序列或无法判定，按逐元素处理
+factor_180,956,"max_ratio = np.fmax(bull, bear)   # fmax ignores NaN",elementwise,ok,第二参数为序列或无法判定，按逐元素处理
+factor_180,957,"min_ratio = np.fmin(bull, bear)   # fmin ignores NaN",elementwise,ok,第二参数为序列或无法判定，按逐元素处理
