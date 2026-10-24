@@ -42,10 +42,16 @@ MARKET_EVENTS = {
     "2024-02-29": "2024 微盘崩",
 }
 
-# X_matrix 的 16 因子列（与 zz500 完全一致，跨指数可比）
+# X_matrix 的因子列（与 zz500 完全一致，跨指数可比）
+#
+# ⚠ 2026-10-24 换池：原 16 因子是 Alpha191 口径修复前（前复权价 + VWAP 量纲错配）
+# 筛出的，池本身不可信。现改为修复后在同一套 PIT 面板上重新提纯的 15 因子池
+# （见 strategies/feature_selection/report.md）。
+# 旧矩阵备份为 X_matrix_hs300_pre_alpha191fix.csv。
+# 换池后 zz500 分支必须先重建 zz500_pit_trial/X_matrix.csv，否则会因缺列报错。
 FACTOR_COLS = [
-    "alpha116", "alpha001", "alpha142", "alpha087", "alpha108",
-    "alpha003", "alpha144", "alpha023", "alpha051", "alpha110",
-    "alpha162", "alpha011", "alpha169", "alpha021", "alpha176", "alpha055",
+    "alpha087", "alpha044", "alpha003", "alpha001", "alpha116",
+    "alpha142", "alpha108", "alpha012", "alpha011", "alpha176",
+    "alpha045", "alpha051", "alpha126", "alpha053", "alpha055",
 ]
 MARKET_COLS = ["market_vol_20d", "market_turnover_20d"]

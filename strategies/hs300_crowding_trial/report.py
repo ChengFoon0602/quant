@@ -195,7 +195,9 @@ def compute_index(idx: str) -> dict:
 
     # ── 基本面低拥挤可交易性 ──
     trad = run_tradability(X_fund=X_fund, close_f=close, crowd_f=crowd_f,
-                           fr_f=fr_f, index_name=idx)
+                           fr_f=fr_f, index_name=idx,
+                           # 铁律 3：双边 0.1%（旧默认 0.003 是已知 bug 口径，见 CLAUDE.md）
+                           cost_bps=0.001)
     print(f"  可交易性: 策略 SR={trad['strategy']['sharpe']:+.3f} "
           f"(月频口径 {trad['strategy']['sr_12']:+.3f}) p={trad['strategy']['bootstrap_p']:.4f} "
           f"| 基准 SR={trad['baseline']['sharpe']:+.3f} p={trad['baseline']['bootstrap_p']:.4f}")
@@ -399,23 +401,49 @@ def print_comparison(rv: dict, rh: dict):
 
 
 def main():
-    section(f"方向C 延伸④：跨指数验证（{IDX_LABEL[INDEX]}）")
-    print(f"[*] 复用 zz500_crowding_trial 代码，对 {INDEX} 与 zz500 各跑全套。")
+    import argparse
+    ap = argparse.ArgumentParser(description="跨指数拥挤度验证")
+    ap.add_argument("--only", choices=["hs300", "zz500", "both"], default="both",
+                    help="只跑一个指数（zz500 需要 zz500_pit_trial/X_matrix.csv 已按新池重建）")
+    args = ap.parse_args()
 
-    rv = compute_index("zz500")
-    rh = compute_index("hs300")
+    section(f"方向C 延伸④：跨指数验证（{IDX_LABEL[INDEX]}）")
+    print(f"[*] 复用 zz500_crowding_trial 代码，仅跑 {args.only}。")
+
+    rv = compute_index("zz500") if args.only in ("zz500", "both") else None
+    rh = compute_index("hs300") if args.only in ("hs300", "both") else None
 
     section("生成图表")
-    plot_hs300_timeseries(rh)
-    plot_hs300_conditional(rh)
-    plot_cross_index_composite(rv, rh)
-    plot_cross_index_conditional(rv, rh)
-    plot_cross_index_tradability(rv, rh)
-    plot_hs300_event_study(rh)
-
-    print_comparison(rv, rh)
+    if rh is not None:
+        plot_hs300_timeseries(rh)
+        plot_hs300_conditional(rh)
+        plot_hs300_event_study(rh)
+    if rv is not None and rh is not None:
+        plot_cross_index_composite(rv, rh)
+        plot_cross_index_conditional(rv, rh)
+        plot_cross_index_tradability(rv, rh)
+        print_comparison(rv, rh)
+    elif rh is not None:
+        print_hs300_only(rh)
     section("完成")
-    print("图表: 06 张 → figures/ | 量价因子矩阵缓存: X_matrix_hs300.csv")
+    print("图表: → figures/ | 量价因子矩阵缓存: X_matrix_hs300.csv")
+
+
+def print_hs300_only(r: dict):
+    """单指数（hs300）关键数字汇总（zz500 分支未跑时的替代输出）。"""
+    section("沪深300 关键数字（单指数）")
+    s, b = r["trad"]["strategy"], r["trad"]["baseline"]
+    cap = r["trad"]["capacity"]
+    print(f"  极端事件: 量价 {len(r['events_v'])} / 基本面 {len(r['events_f'])} 个")
+    print(f"  低拥挤月: {cap['n_hold_months']}/{cap['n_months']} | 切换 {cap['n_switches']} 次")
+    print(f"  策略 SR={s['sharpe']:+.3f} (月频 {s['sr_12']:+.3f}) p={s['bootstrap_p']:.4f} "
+          f"年化 {s['annual']:+.2%} | 基准 SR={b['sharpe']:+.3f} p={b['bootstrap_p']:.4f}")
+    for key, label in [("cond_v", "量价"), ("cond_f", "基本面")]:
+        print(f"  {label}条件收益: " + " ".join(
+            f"{row['bucket']}={row['mean']:+.4f}(t={row['t']:.2f})"
+            for _, row in r[key].iterrows()))
+    print("  成本敏感性: " + " ".join(
+        f"{c*100:.1f}%→{v:+.3f}" for c, v in r["trad"]["cost_sensitivity"].items()))
 
 
 if __name__ == "__main__":
