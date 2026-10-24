@@ -39,6 +39,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 from data.fetcher import load_daily, cache_summary
 from data.universe import build_dynamic_universe, get_listing_info
 from signals.alpha191.factors import factor_055
+from signals.alpha191.calculator import compute_panel_factor
 from backtest.cross_section import run_cross_section
 
 REPORT_DIR = "figures"
@@ -75,7 +76,7 @@ volume_data = {}
 amount_data = {}
 n_failed = 0
 for sym in ALL_SYMBOLS:
-    df = load_daily(sym)
+    df = load_daily(sym, adjust="1")  # 后复权：RANK/CORR 需截面同口径
     if df is None or len(df) < 100:
         n_failed += 1
         continue
@@ -141,15 +142,12 @@ delist_info = {
 def compute_factor_from_loaded(
     delta_days: int = 4
 ) -> pd.DataFrame:
-    """从已加载的 all_dfs 计算 alpha055 因子矩阵。"""
-    factor_rows = {}
-    for sym, df in all_dfs.items():
-        try:
-            factor_rows[sym] = factor_055(df, delta_days=delta_days)
-        except Exception:
-            factor_rows[sym] = pd.Series(np.nan, index=df.index)
-    mat = pd.DataFrame(factor_rows).sort_index()
-    return mat
+    """从已加载的 all_dfs 计算 alpha055 因子矩阵。
+
+    alpha055 含 RANK，必须走面板模式（截面排名）。逐股票调用会让 RANK
+    退化为单股票时序排名——2026-10-24 前的实现就是这个错误。
+    """
+    return compute_panel_factor(all_dfs, factor_055, delta_days=delta_days)
 
 
 # 默认因子矩阵（delta_days=4）

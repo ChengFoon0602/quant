@@ -1,5 +1,16 @@
 # Alpha 001 因子截面回测 — 量价负相关性因子检验
 
+> **✅ 口径复核通过（2026-10-24）**：本报告已在 Alpha191 口径修复后完整重跑，
+> **数字与修复前逐项一致**（IC_IR 0.142、多空夏普 0.62、FM t=2.7、Bootstrap p=0.52 均不变）。
+>
+> 这是预期的：alpha001 = `-CORR(RANK(DELTA(LOG(VOLUME),1)), RANK((CLOSE-OPEN)/OPEN), 6)`，
+> 两个分量都免疫复权——`(CLOSE-OPEN)/OPEN` 是比率，`LOG` 差分消掉常数缩放。
+> 另经实测：**baostock 的后复权不调整 volume**（adj1 与 adj3 的 volume 完全相等，
+> 只有 close 变了 102 倍），所以 `DELTA(LOG(VOLUME))` 也不受影响。
+>
+> 因此本报告现在兼具双重作用：① 单因子结论有效；② **口径修复的回归基准**——
+> 若它的数字变了，说明修复引入了新缺陷。守卫测试见 `tests/test_alpha191_health.py::test_alpha001_invariant`。
+
 > 完整回测报告 | 2026-07-23
 > 数据: 沪深 300 成分股（2010–2025）| 因子: GTJA191 Alpha 001
 > **结论先行: 因子具备正向截面预测能力（IC>0，分层单调），但单因子策略信息比率为负，跑不赢等权基准。FM 回归 λ 显著（t=2.7）但 Bootstrap 不显著（p=0.52），全市场 Bonferroni 零通过。**
