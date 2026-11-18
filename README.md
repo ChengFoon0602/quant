@@ -48,6 +48,17 @@ quant/
 > `docs/alpha191_复现审计_2026-10-24.md`，执行 `docs/alpha191_修复执行_2026-10-24.md`，
 > 冻结版本 `git tag pre-alpha191-fix-20261024`。
 >
+> **⚠️ ETF 复权口径修复（2026-11-18，影响全部 ETF 类报告）**：`data/etf_fetcher.py` 原实现
+> 调用 `akshare.fund_etf_hist_sina`（**该接口无复权参数**）却声称「前复权」，分红与份额折算
+> 跳空直接进入收益序列。18 只 ETF 池实测 **8 处份额折算（幅度 53%~249%）+ 45 次分红**未计入：
+> 510500 在 2015-04-15 有 **+248.6%** 折算跳空（该标的年化虚高 12.6pp）、512200 在 2024-08-12
+> 有 **+170.1%**（对等权组合单日贡献 **+17.01%**）、512010 在 2021-06-28 有 **−73.9%**（年化虚低 12.6pp）。
+> 现由 `data/etf_adjust.py` 构造后复权因子（分红 × 折算），`load_etf_daily()` 默认返回 `hfq`
+> 口径。**`etf_momentum_crowding`、`all_weather_risk_parity`、`qvix_regime` 三份报告已全部重跑**，
+> 前两份开头加了口径修正块；其中动量报告的「夏普由 0.471 降至 0.394」**结论反转**为
+> 「0.459 升至 0.468，回撤降四成且夏普不降」。诊断与修法见
+> `strategies/qvix_regime/report.md` §6.7。
+>
 > 报告索引中的每份报告都含「方法论修正」章节——其记录的真实踩坑往往比结论本身更有价值。
 > 标 ⛔ 者为**数字已作废、保留正文以记录研究过程**，不要引用其数字。
 
@@ -64,8 +75,9 @@ quant/
 | 9 | [`zz500_fundamental_trial`](strategies/zz500_fundamental_trial/report.md) | 方向2 基本面 | 换源 akshare，20 因子三层检验全否定，弧线闭合（不受 Alpha191 口径修复影响） |
 | 10 | [`zz500_crowding_trial`](strategies/zz500_crowding_trial/report.md) | 方向C 市场结构 | 量价延续 vs 基本面反转双面体 + 低拥挤择时可交易性初探（中证500 基线） |
 | 11 | [`hs300_crowding_trial`](strategies/hs300_crowding_trial/report.md) | 方向C 延伸④ 跨指数 | **跨指数两指数同池重跑**：量价拥挤度**方向相反**（zz500 Q4 **−0.084%** t=−1.90 vs hs300 **+0.103%** t=2.31）；基本面同向但效应量差 4.4×；**撤销**旧「p=0.0002 确证负 alpha」（系 0.3% 成本 bug）；择时两边都不显著 |
-| 12 | [`etf_momentum_crowding`](strategies/etf_momentum_crowding/report.md) | 阶段D ETF与大类资产 | **行业动量反转 + 股债金避险**：行业 ETF 截面动量显现反转（Rank IC −0.0385）；叠加 MA20 趋势与国债/黄金避险后，**最大回撤从 −43.10% 降至 −25.62%（降幅四成）**，代价是夏普同降（0.471→0.394）——属风险-收益重配比；双边 4 bps 超低摩擦。**（2026-09-28 口径修正后重算）** |
-| 13 | [`all_weather_risk_parity`](strategies/all_weather_risk_parity/report.md) | 阶段E 全天候多资产配置 | **欧拉风险平价 (ERC)**：跨资产等风险贡献消除股票风险霸权，2015-2025 全周期 **SR=1.775、MDD 仅 −4.02%（降低 91%）、Bootstrap p=0.0000**，奠定极稳底层资产配置底座 |
+| 12 | [`etf_momentum_crowding`](strategies/etf_momentum_crowding/report.md) | 阶段D ETF与大类资产 | ⚠️ **行业动量反转 + 股债金避险**：行业 ETF 截面动量显现反转（Rank IC −0.0385）；叠加 MA20 趋势与国债/黄金避险后，**最大回撤从 −46.48% 降至 −25.58%（降幅 45%）**，**夏普由 0.459 升至 0.468**（2026-11-18 后复权口径修正；旧「夏普同降 0.471→0.394」**结论已反转**）；双边 4 bps 超低摩擦 |
+| 13 | [`all_weather_risk_parity`](strategies/all_weather_risk_parity/report.md) | 阶段E 全天候多资产配置 | **欧拉风险平价 (ERC)**：跨资产等风险贡献消除股票风险霸权，2015-2025 全周期 **SR=1.873（后复权修正，原 1.775）、MDD 仅 −4.02%（降低 90%）、Bootstrap p=0.0000**，奠定极稳底层资产配置底座 |
+| 14 | [`qvix_regime`](strategies/qvix_regime/report.md) | 阶段F 波动率状态 | **期权隐含波动率闸门 2/4 关通过**：QVIX 预测波动优于历史 RV（$R^2$ 0.410 vs 0.359）但不预测收益（p=0.30）；同等暴露下夏普 0.665 vs MA20 0.492，代价是回撤 −40.49% vs −25.61%，优势 146% 来自 2021 单年。**不可替代 MA20；双闸门并联夏普 0.529、回撤 −25.51%，两项均优于单 MA20**。附 7 条方法论修正，含查出并修复 **ETF 缓存实为未复权**（8 处折算 + 45 次分红未计入，512200 单日虚假 +170% 污染组合 +17.01%） |
 
 **方法论铁律**（贯穿全部报告，详见 `CLAUDE.md`）：
 未来函数（`.shift(1)` / PIT 公告日 / 复权方式）、幸存者偏差（PIT 成分股）、Overlapping Returns 平滑陷阱、
