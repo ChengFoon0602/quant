@@ -71,7 +71,7 @@ quant/
 | 5 | [`factor_discovery`](strategies/factor_discovery/report.md) | 因子提纯 | ⛔ **不可修复**：141 是「纸老虎」（IC 高无分散度），055/001 价格绝对量受前复权污染 |
 | 6 | [`feature_selection`](strategies/feature_selection/report.md) | 特征选择 | **191→15 因子**（新口径重筛 2026-10-24；三维通过 **30** = 口径修复时 29 + 算子修复新增 alpha149，后未进池；成分换 9），PIT 沪深300 |
 | 7 | [`models/report.md`](models/report.md) | ML 非线性合成 | **方法论修正 I–VI**：夏普 8.75→0.08 的完整踩坑史 + 成本 bug + Alpha191 口径/算子修复；canonical WF 22.32%/1.582，**唯一可引用去 bias LS 年化 4.93%、夏普 0.524、回撤 −22.51%** |
-| 8 | [`zz500_pit_trial`](strategies/zz500_pit_trial/report.md) | 路线② 量价×中证500 | 新口径全链重跑（1622 只）：**去 bias WF 夏普 1.350 / 年化 16.16% / 回撤 −20.91%**；含 bias 的 WF 2.521、LS 2.327、OOF IC 0.0863 不可单独引用。**P1/P2 仍为修复前口径** |
+| 8 | [`zz500_pit_trial`](strategies/zz500_pit_trial/report.md) | 路线② 量价×中证500 | 新口径全链重跑（1622 只）：**去 bias WF 夏普 1.350 / 年化 16.16% / 回撤 −20.91%**；含 bias 的 WF 2.521、LS 2.327、OOF IC 0.0863 不可单独引用。**P1/P2 已于 2026-11-18 按新口径重跑**：P1 中间态（LO-raw 超额 +8.9%、IR 1.18、p=0.041；中性化后 IR 1.02、p=0.102；容量 0.5 亿 SR 0.381 <0.5），P2 否定（gated borrow 0% SR +0.19、p=0.275；8% 融券后年化 −1.83%） |
 | 9 | [`zz500_fundamental_trial`](strategies/zz500_fundamental_trial/report.md) | 方向2 基本面 | 换源 akshare，20 因子三层检验全否定，弧线闭合（不受 Alpha191 口径修复影响） |
 | 10 | [`zz500_crowding_trial`](strategies/zz500_crowding_trial/report.md) | 方向C 市场结构 | 量价延续 vs 基本面反转双面体 + 低拥挤择时可交易性初探（中证500 基线） |
 | 11 | [`hs300_crowding_trial`](strategies/hs300_crowding_trial/report.md) | 方向C 延伸④ 跨指数 | **跨指数两指数同池重跑**：量价拥挤度**方向相反**（zz500 Q4 **−0.084%** t=−1.90 vs hs300 **+0.103%** t=2.31）；基本面同向但效应量差 4.4×；**撤销**旧「p=0.0002 确证负 alpha」（系 0.3% 成本 bug）；择时两边都不显著 |
